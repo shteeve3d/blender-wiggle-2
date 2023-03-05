@@ -12,10 +12,12 @@ bl_info = {
 
 ### TO DO #####
 
-# Collision
-# Implement a constant physics step
-# Mass improve
 # Pinning
+# Basic object jiggle?
+# Implement a constant physics step
+# Bounciness improve
+# Mass improve
+
 
 import bpy, math
 from mathutils import Vector, Matrix, Euler, Quaternion, geometry
@@ -43,7 +45,6 @@ def build_list():
             wb = ob.wiggle.list.add()
             wb.name = b.name
         
-
 def update_prop(self,context,prop): 
     if type(self) == bpy.types.PoseBone: 
         for b in context.selected_pose_bones:
@@ -60,6 +61,67 @@ def get_parent(b):
 
 def length_world(b):
     return (b.id_data.matrix_world @ b.head - b.id_data.matrix_world @ b.tail).length
+
+def collider_poll(self, object):
+    return object.type == 'MESH'
+
+def collide(b,dg):
+    dt = bpy.context.scene.wiggle.dt
+    
+    pos = b.wiggle.position
+    vel = b.wiggle.velocity
+    cp = b.wiggle.collision_point
+    co = b.wiggle.collision_ob
+    radius = b.wiggle_radius
+    sticky = b.wiggle_sticky
+    bounce = b.wiggle_bounce
+    friction = b.wiggle_friction
+    
+    colliders = []
+    if b.wiggle_collider_type == 'Object' and b.wiggle_collider:
+        colliders = [b.wiggle_collider]
+    if b.wiggle_collider_type == 'Collection' and b.wiggle_collider_collection:
+        colliders = [ob for ob in b.wiggle_collider_collection.objects if ob.type == 'MESH']
+    col = False
+    for collider in colliders:
+        cmw = collider.matrix_world
+        p = collider.closest_point_on_mesh(cmw.inverted() @ pos, depsgraph=dg)
+        n = (cmw.to_quaternion().to_matrix().to_4x4() @ p[2]).normalized()
+        i = cmw @ p[1]
+        v = i-pos
+        
+        if (n.dot(v.normalized()) > 0.01) or (v.length < radius) or (co and (v.length < (radius+sticky))):
+            if n.dot(v.normalized()) > 0: #vec is below
+                nv = v.normalized()
+            else: #normal is opposite dir to vec
+                nv = -v.normalized()
+            pos = i + nv*radius
+            
+            vel_bounce = vel.reflect(nv)
+            v0 = pos + vel
+            v1 = v0 + nv*5
+            vec = geometry.intersect_line_plane(v0,v1,pos,nv)
+            if vec:
+                vel_slip = vec-pos
+            else:
+                print('bad data')
+                vel_slip = Vector((0,0,0))
+            vel = (vel_bounce*(bounce) + vel_slip*max(1-bounce,0))*(1-min(1,friction*60*dt))
+            
+            if co:
+                collision_point = co.matrix_world @ cp
+                pos = pos.lerp(collision_point, min(1,friction*60*dt))
+            col = True
+            co = collider
+            cp = relative_matrix(cmw, Matrix.Translation(pos)).translation
+    if not col:
+        co = None
+        cp = Vector((0,0,0))
+        
+    b.wiggle.position = pos
+    b.wiggle.velocity = vel
+    b.wiggle.collision_point = cp
+    b.wiggle.collision_ob = co
     
 def update_matrix(b):
     p = get_parent(b)
@@ -88,7 +150,7 @@ def update_matrix(b):
         b.matrix = b.matrix @ rot @ scale
     b.wiggle.matrix = flatten(mat3 @ rot @ scale)
 
-def wiggle(b):
+def wiggle(b,dg):
     mat = b.id_data.matrix_world @ b.matrix
     p = get_parent(b)
     if p:
@@ -114,7 +176,7 @@ def wiggle(b):
         b.wiggle.position += Fs*dt*dt
     update_matrix(b)
 
-def stretch(b,i):
+def stretch(b,i,dg):
     target = b.wiggle.matrix.translation + (b.wiggle.position - b.wiggle.matrix.translation).normalized()*length_world(b)
     s = (target - b.wiggle.position)*(1-b.wiggle_stretch)
     p = get_parent(b) 
@@ -131,9 +193,9 @@ def stretch(b,i):
         update_matrix(p)
     else:
         b.wiggle.position += s
+    collide(b,dg)
     update_matrix(b)
-            
-    
+        
 @persistent
 def wiggle_pre(scene):
     if not scene.wiggle_enable: return
@@ -155,7 +217,7 @@ def wiggle_pre(scene):
     bpy.context.view_layer.update()
 
 @persistent                
-def wiggle_post(scene):
+def wiggle_post(scene,dg):
     if not scene.wiggle_enable: return
 
     lastframe = scene.wiggle.lastframe
@@ -177,10 +239,10 @@ def wiggle_post(scene):
         for wb in ob.wiggle.list:
             bones.append(ob.pose.bones[wb.name])
         for b in bones:
-            wiggle(b)
+            wiggle(b,dg)
         for i in range(scene.wiggle.iterations):
             for b in bones:
-                stretch(b, scene.wiggle.iterations-1-i)
+                stretch(b, scene.wiggle.iterations-1-i,dg)
         if frames_elapsed:
             for b in bones:
                 b.wiggle.velocity = (b.wiggle.position - b.wiggle.position_last)/max(frames_elapsed,1)
@@ -197,11 +259,16 @@ class WiggleCopy(bpy.types.Operator):
     
     def execute(self,context):
         b = context.active_pose_bone
+        b.wiggle_enable = b.wiggle_enable
         b.wiggle_mass = b.wiggle_mass
         b.wiggle_stiff = b.wiggle_stiff
         b.wiggle_stretch = b.wiggle_stretch
         b.wiggle_damp = b.wiggle_damp
         b.wiggle_gravity = b.wiggle_gravity
+        b.wiggle_radius = b.wiggle_radius
+        b.wiggle_friction = b.wiggle_friction
+        b.wiggle_bounce = b.wiggle_bounce
+        b.wiggle_sticky = b.wiggle_sticky
         return {'FINISHED'}
 
 class WiggleReset(bpy.types.Operator):
@@ -215,10 +282,10 @@ class WiggleReset(bpy.types.Operator):
     
     def execute(self,context):
         wiggle_pre(bpy.context.scene)
-        for ob in context.selected_objects:
-            if not ob.type == 'ARMATURE': continue
-            for b in ob.pose.bones:
-                if not b.wiggle_enable: continue
+        for wo in context.scene.wiggle.list:
+            ob = context.scene.objects[wo.name]
+            for wb in ob.wiggle.list:
+                b = ob.pose.bones[wb.name]
                 rest_mat = b.id_data.matrix_world @ b.bone.matrix_local
                 if b.parent:
                     rest_mat = b.id_data.matrix_world @ b.parent.matrix @ relative_matrix(b.parent.bone.matrix_local, b.bone.matrix_local)
@@ -242,6 +309,9 @@ class WIGGLE_PT_Settings(bpy.types.Panel):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
+        def drawprops(layout,b,props):
+            for p in props:
+                layout.prop(b, p)
         def active_panel(layout):
             row = layout.row()
             row.prop(context.scene, 'wiggle_enable', icon = 'SCENE_DATA',icon_only=True)
@@ -252,14 +322,17 @@ class WIGGLE_PT_Settings(bpy.types.Panel):
                 return
             b = context.active_pose_bone
             row.prop(b, 'wiggle_enable', icon = 'BONE_DATA',icon_only=True)
-#            row.label(text=b.name)
             if not b.wiggle_enable:
                 return
-            layout.prop(b, 'wiggle_mass')
-            layout.prop(b, 'wiggle_stiff')
-            layout.prop(b, 'wiggle_stretch')
-            layout.prop(b, 'wiggle_damp')
-            layout.prop(b, 'wiggle_gravity')
+            drawprops(layout,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp','wiggle_gravity'])
+            layout.separator()
+            layout.prop(b, 'wiggle_collider_type',text='Collisions')
+            if b.wiggle_collider_type == 'Object':
+                layout.prop_search(b, 'wiggle_collider', context.scene, 'objects',text=' ')
+            else:
+                layout.prop_search(b, 'wiggle_collider_collection', context.scene.collection, 'children', text=' ')
+            drawprops(layout,b,['wiggle_radius','wiggle_friction','wiggle_bounce','wiggle_sticky'])
+            layout.separator()
             layout.operator('wiggle.copy')
         active_panel(layout)
         layout.separator()
@@ -277,6 +350,9 @@ class WiggleBone(bpy.types.PropertyGroup):
     position: bpy.props.FloatVectorProperty(subtype='TRANSLATION')
     position_last: bpy.props.FloatVectorProperty(subtype='TRANSLATION')
     velocity: bpy.props.FloatVectorProperty(subtype='VELOCITY')
+    
+    collision_point:bpy.props.FloatVectorProperty(subtype = 'TRANSLATION')
+    collision_ob: bpy.props.PointerProperty(type=bpy.types.Object)
     
 class WiggleObject(bpy.types.PropertyGroup):
     list: bpy.props.CollectionProperty(type=WiggleItem)
@@ -350,6 +426,63 @@ def register():
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
+    )
+    bpy.types.PoseBone.wiggle_collider_type = bpy.props.EnumProperty(
+        name='Collider Type',
+        items=[('Object','Object','Collide with a selected mesh'),('Collection','Collection','Collide with all meshes in selected collection')],
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_collider_type')
+    )
+    bpy.types.PoseBone.wiggle_collider = bpy.props.PointerProperty(
+        name='Collider Object', 
+        description='Mesh object to collide with', 
+        type=bpy.types.Object, 
+        poll = collider_poll, 
+        override={'LIBRARY_OVERRIDABLE'}, 
+        update=lambda s, c: update_prop(s, c, 'wiggle_collider')
+    )
+    bpy.types.PoseBone.wiggle_collider_collection = bpy.props.PointerProperty(
+        name = 'Collider Collection', 
+        description='Collection to collide with', 
+        type=bpy.types.Collection, 
+        override={'LIBRARY_OVERRIDABLE'}, 
+        update=lambda s, c: update_prop(s, c, 'wiggle_collider_collection')
+    )
+    
+    bpy.types.PoseBone.wiggle_radius = bpy.props.FloatProperty(
+        name = 'Radius',
+        description = 'Collision radius',
+        min = 0,
+        default = 0,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_radius')
+    )
+    bpy.types.PoseBone.wiggle_friction = bpy.props.FloatProperty(
+        name = 'Friction',
+        description = 'Friction when colliding',
+        min = 0,
+        default = 0.5,
+        soft_max = 1,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_friction')
+    )
+    bpy.types.PoseBone.wiggle_bounce = bpy.props.FloatProperty(
+        name = 'Bounce',
+        description = 'Bounciness when colliding',
+        min = 0,
+        default = 0.5,
+        soft_max = 1,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_bounce')
+    )
+    bpy.types.PoseBone.wiggle_sticky = bpy.props.FloatProperty(
+        name = 'Sticky',
+        description = 'Stickiness when colliding (small numbers often suffice)',
+        min = 0,
+        default = 0,
+        soft_max = 1,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_sticky')
     )
     
     #internal variables
