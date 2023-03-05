@@ -239,7 +239,7 @@ def wiggle_post(scene,dg):
     if not scene.wiggle_enable: return
 
     lastframe = scene.wiggle.lastframe
-    if (scene.frame_current == scene.frame_start) and (scene.wiggle.loop == False):
+    if (scene.frame_current == scene.frame_start) and (scene.wiggle.loop == False) and (scene.wiggle.is_preroll == False):
         bpy.ops.wiggle.reset()
     if scene.frame_current >= lastframe:
         frames_elapsed = scene.frame_current - lastframe
@@ -273,7 +273,7 @@ class WiggleCopy(bpy.types.Operator):
     
     @classmethod
     def poll(cls,context):
-        return context.mode in ['POSE'] and context.active_pose_bone
+        return context.mode in ['POSE'] and context.active_pose_bone and (len(context.selected_pose_bones)>1)
     
     def execute(self,context):
         b = context.active_pose_bone
@@ -295,11 +295,11 @@ class WiggleCopy(bpy.types.Operator):
 class WiggleReset(bpy.types.Operator):
     """Reset wiggle physics to rest state"""
     bl_idname = "wiggle.reset"
-    bl_label = "Reset State"
+    bl_label = "Reset Physics"
     
     @classmethod
     def poll(cls,context):
-        return context.mode in ['OBJECT', 'POSE']
+        return context.scene.wiggle_enable and context.mode in ['OBJECT', 'POSE']
     
     def execute(self,context):
         wiggle_pre(bpy.context.scene)
@@ -319,7 +319,7 @@ class WiggleReset(bpy.types.Operator):
 class WiggleSelect(bpy.types.Operator):
     """Select wiggle bones on selected objects in pose mode"""
     bl_idname = "wiggle.select"
-    bl_label = "Select Wiggle"
+    bl_label = "Select Enabled"
     
     @classmethod
     def poll(cls,context):
@@ -332,17 +332,53 @@ class WiggleSelect(bpy.types.Operator):
                 for wb in ob.wiggle.list:
                     b = ob.pose.bones[wb.name]
                     b.bone.select = True
-        return {'FINISHED'}    
+        return {'FINISHED'}  
     
-class WIGGLE_PT_Settings(bpy.types.Panel):
+class WiggleBake(bpy.types.Operator):
+    """Bake this object's wiggle bones to keyframes"""
+    bl_idname = "wiggle.bake"
+    bl_label = "Bake Wiggle"
+    
+    @classmethod
+    def poll(cls,context):
+        return context.object
+    
+    def execute(self,context):
+        #preroll
+        duration = context.scene.frame_end - context.scene.frame_start + 1
+        preroll = context.scene.wiggle.preroll
+        context.scene.wiggle.is_preroll = False
+        bpy.ops.wiggle.select()
+        bpy.ops.wiggle.reset()
+        while preroll >= 0:
+            if context.scene.wiggle.loop:
+                frame = context.scene.frame_end - (preroll%duration)
+                context.scene.frame_set(frame)
+            else:
+                context.scene.frame_set(context.scene.frame_start)
+            context.scene.wiggle.is_preroll = True
+            preroll -= 1
+        bpy.ops.nla.bake(frame_start = context.scene.frame_start,
+                        frame_end = context.scene.frame_end,
+                        only_selected = True,
+                        visual_keying = True,
+                        use_current_action = context.scene.wiggle.bake_overwrite,
+                        bake_types={'POSE'})
+        context.scene.wiggle.is_preroll = False
+        context.object.wiggle_enable = False
+        return {'FINISHED'}  
+
+class WigglePanel:
     bl_category = 'Animation'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_label = 'Wiggle 2'
     
     @classmethod
-    def poll(cls, context):
-        return context.active_object
+    def poll(cls,context):
+        return context.object  
+
+class WIGGLE_PT_Settings(WigglePanel, bpy.types.Panel):
+    bl_label = 'Wiggle 2'
     
     def draw(self,context):
         layout = self.layout
@@ -351,39 +387,62 @@ class WIGGLE_PT_Settings(bpy.types.Panel):
         def drawprops(layout,b,props):
             for p in props:
                 layout.prop(b, p)
-        def active_panel(layout):
-            row = layout.row()
-            row.prop(context.scene, 'wiggle_enable', icon = 'SCENE_DATA',icon_only=True)
-            ob = context.object
-            if ob.type == 'ARMATURE':
-                row.prop(ob, 'wiggle_enable', icon = 'OBJECT_DATA',icon_only=True)
-            if not context.scene.wiggle_enable or context.active_object.mode != 'POSE' or not context.active_pose_bone:
-                return
-            b = context.active_pose_bone
-            row.prop(b, 'wiggle_enable', icon = 'BONE_DATA',icon_only=True)
-            if not b.wiggle_enable:
-                return
-            drawprops(layout,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp','wiggle_gravity'])
-            layout.separator()
-            layout.prop(b, 'wiggle_collider_type',text='Collisions')
-            collision = False
-            if b.wiggle_collider_type == 'Object':
-                layout.prop_search(b, 'wiggle_collider', context.scene, 'objects',text=' ')
-                if b.wiggle_collider: collision = True
-            else:
-                layout.prop_search(b, 'wiggle_collider_collection', context.scene.collection, 'children', text=' ')
-                if b.wiggle_collider_collection: collision = True
-            if collision:
-                drawprops(layout,b,['wiggle_radius','wiggle_friction','wiggle_bounce','wiggle_sticky'])
-            layout.separator()
-            layout.operator('wiggle.copy')
-        active_panel(layout)
+                
+        row = layout.row()
+        row.prop(context.scene, 'wiggle_enable', icon = 'SCENE_DATA',icon_only=True)
+        ob = context.object
+        if ob.type == 'ARMATURE':
+            row.prop(ob, 'wiggle_enable', icon = 'OBJECT_DATA',icon_only=True)
+        if not context.scene.wiggle_enable or context.active_object.mode != 'POSE' or not context.active_pose_bone:
+            return
+        b = context.active_pose_bone
+        row.prop(b, 'wiggle_enable', icon = 'BONE_DATA',icon_only=True)
+        if not b.wiggle_enable:
+            return
+        drawprops(layout,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp','wiggle_gravity'])
         layout.separator()
-        layout.label(text='Global Settings')
+        layout.prop(b, 'wiggle_collider_type',text='Collisions')
+        collision = False
+        if b.wiggle_collider_type == 'Object':
+            layout.prop_search(b, 'wiggle_collider', context.scene, 'objects',text=' ')
+            if b.wiggle_collider: collision = True
+        else:
+            layout.prop_search(b, 'wiggle_collider_collection', context.scene.collection, 'children', text=' ')
+            if b.wiggle_collider_collection: collision = True
+        if collision:
+            drawprops(layout,b,['wiggle_radius','wiggle_friction','wiggle_bounce','wiggle_sticky'])
+        layout.separator()
+        layout.operator('wiggle.copy')
+                
+class WIGGLE_PT_Utilities(WigglePanel,bpy.types.Panel):
+    bl_label = 'Global Wiggle Utilities'
+    bl_parent_id = 'WIGGLE_PT_Settings'
+    
+    def draw(self,context):
+        layout = self.layout
+        layout.use_property_split=True
+        layout.use_property_decorate=False
         layout.prop(context.scene.wiggle, 'iterations')
         layout.prop(context.scene.wiggle, 'loop')
         layout.operator('wiggle.reset')
-        layout.operator('wiggle.select')
+        if context.object.wiggle_enable and context.mode == 'POSE':
+            layout.operator('wiggle.select')
+                    
+class WIGGLE_PT_Bake(WigglePanel,bpy.types.Panel):
+    bl_label = 'Bake Wiggle'
+    bl_parent_id = 'WIGGLE_PT_Utilities'
+    
+    @classmethod
+    def poll(cls,context):
+        return context.scene.wiggle_enable and context.object.wiggle_enable and context.mode == 'POSE'
+    
+    def draw(self,context):
+        layout = self.layout
+        layout.use_property_split=True
+        layout.use_property_decorate=False
+        layout.prop(context.scene.wiggle, 'preroll')
+        layout.prop(context.scene.wiggle, 'bake_overwrite')
+        layout.operator('wiggle.bake')
         
 class WiggleItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty()        
@@ -408,26 +467,29 @@ class WiggleScene(bpy.types.PropertyGroup):
     iterations: bpy.props.IntProperty(name='Quality', description='Increase solver iterations for better chain physics', min=1, default=1, max=4)
     loop: bpy.props.BoolProperty(name='Looping', description='Physics continues as timeline loops', default=True)
     list: bpy.props.CollectionProperty(type=WiggleItem)
+    preroll: bpy.props.IntProperty(name = 'Preroll', description='Frames to let simulation run before baking', min=0, default=0)
+    is_preroll: bpy.props.BoolProperty(default=False)
+    bake_overwrite: bpy.props.BoolProperty(name='Overwrite', description='Bake wiggle into current action, instead of creating a new one', default = False)
 
 def register():
     #user variables
     bpy.types.Scene.wiggle_enable = bpy.props.BoolProperty(
-        name = 'Enable',
-        description = 'Enable jiggle on this scene',
+        name = 'Enable Scene',
+        description = 'Enable wiggle on this scene',
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_enable')
     )
     bpy.types.Object.wiggle_enable = bpy.props.BoolProperty(
-        name = 'Enable',
-        description = 'Enable jiggle on this object',
+        name = 'Enable Object',
+        description = 'Enable wiggle on this object',
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_enable')
     )
     bpy.types.PoseBone.wiggle_enable = bpy.props.BoolProperty(
-        name = 'Enable',
-        description = 'Enable jiggle on this bone',
+        name = 'Enable Bone',
+        description = 'Enable wiggle on this bone',
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_enable')
@@ -542,12 +604,15 @@ def register():
     bpy.utils.register_class(WiggleReset)
     bpy.utils.register_class(WiggleCopy)
     bpy.utils.register_class(WiggleSelect)
+    bpy.utils.register_class(WiggleBake)
     bpy.utils.register_class(WIGGLE_PT_Settings)
+    bpy.utils.register_class(WIGGLE_PT_Utilities)
+    bpy.utils.register_class(WIGGLE_PT_Bake)
     
-#    bpy.app.handlers.frame_change_pre.clear()
-#    bpy.app.handlers.frame_change_post.clear()
-#    bpy.app.handlers.render_pre.clear()
-#    bpy.app.handlers.render_post.clear()
+    bpy.app.handlers.frame_change_pre.clear()
+    bpy.app.handlers.frame_change_post.clear()
+    bpy.app.handlers.render_pre.clear()
+    bpy.app.handlers.render_post.clear()
     
     bpy.app.handlers.frame_change_pre.append(wiggle_pre)
     bpy.app.handlers.frame_change_post.append(wiggle_post)
@@ -560,7 +625,10 @@ def unregister():
     bpy.utils.unregister_class(WiggleReset)
     bpy.utils.unregister_class(WiggleCopy)
     bpy.utils.unregister_class(WiggleSelect)
+    bpy.utils.unregister_class(WiggleBake)
     bpy.utils.unregister_class(WIGGLE_PT_Settings)
+    bpy.utils.unregister_class(WIGGLE_PT_Utilities)
+    bpy.utils.unregister_class(WIGGLE_PT_Bake)
     
     bpy.app.handlers.frame_change_pre.remove(wiggle_pre)
     bpy.app.handlers.frame_change_post.remove(wiggle_post)
