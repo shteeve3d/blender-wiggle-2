@@ -445,28 +445,28 @@ class WIGGLE_PT_Bake(WigglePanel,bpy.types.Panel):
         layout.operator('wiggle.bake')
         
 class WiggleItem(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty()        
+    name: bpy.props.StringProperty(override={'LIBRARY_OVERRIDABLE'})        
 
 #store properties for a bone. custom properties for user editable. property group for internal calculations
 class WiggleBone(bpy.types.PropertyGroup):
-    matrix: bpy.props.FloatVectorProperty(name = 'Matrix', size=16, subtype = 'MATRIX')
-    lmatrix: bpy.props.FloatVectorProperty(name = 'LMatrix', size=16, subtype = 'MATRIX')
-    position: bpy.props.FloatVectorProperty(subtype='TRANSLATION')
-    position_last: bpy.props.FloatVectorProperty(subtype='TRANSLATION')
-    velocity: bpy.props.FloatVectorProperty(subtype='VELOCITY')
+    matrix: bpy.props.FloatVectorProperty(name = 'Matrix', size=16, subtype = 'MATRIX', override={'LIBRARY_OVERRIDABLE'})
+    lmatrix: bpy.props.FloatVectorProperty(name = 'LMatrix', size=16, subtype = 'MATRIX', override={'LIBRARY_OVERRIDABLE'})
+    position: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
+    position_last: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
+    velocity: bpy.props.FloatVectorProperty(subtype='VELOCITY', override={'LIBRARY_OVERRIDABLE'})
     
-    collision_point:bpy.props.FloatVectorProperty(subtype = 'TRANSLATION')
-    collision_ob: bpy.props.PointerProperty(type=bpy.types.Object)
+    collision_point:bpy.props.FloatVectorProperty(subtype = 'TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
+    collision_ob: bpy.props.PointerProperty(type=bpy.types.Object, override={'LIBRARY_OVERRIDABLE'})
     
 class WiggleObject(bpy.types.PropertyGroup):
-    list: bpy.props.CollectionProperty(type=WiggleItem)
+    list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
     
 class WiggleScene(bpy.types.PropertyGroup):
     dt: bpy.props.FloatProperty()
     lastframe: bpy.props.IntProperty()
     iterations: bpy.props.IntProperty(name='Quality', description='Increase solver iterations for better chain physics', min=1, default=1, max=4)
     loop: bpy.props.BoolProperty(name='Looping', description='Physics continues as timeline loops', default=True)
-    list: bpy.props.CollectionProperty(type=WiggleItem)
+    list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
     preroll: bpy.props.IntProperty(name = 'Preroll', description='Frames to let simulation run before baking', min=0, default=0)
     is_preroll: bpy.props.BoolProperty(default=False)
     bake_overwrite: bpy.props.BoolProperty(name='Overwrite', description='Bake wiggle into current action, instead of creating a new one', default = False)
@@ -609,10 +609,10 @@ def register():
     bpy.utils.register_class(WIGGLE_PT_Utilities)
     bpy.utils.register_class(WIGGLE_PT_Bake)
     
-    bpy.app.handlers.frame_change_pre.clear()
-    bpy.app.handlers.frame_change_post.clear()
-    bpy.app.handlers.render_pre.clear()
-    bpy.app.handlers.render_post.clear()
+#    bpy.app.handlers.frame_change_pre.clear()
+#    bpy.app.handlers.frame_change_post.clear()
+#    bpy.app.handlers.render_pre.clear()
+#    bpy.app.handlers.render_post.clear()
     
     bpy.app.handlers.frame_change_pre.append(wiggle_pre)
     bpy.app.handlers.frame_change_post.append(wiggle_post)
