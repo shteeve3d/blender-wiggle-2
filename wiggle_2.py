@@ -18,9 +18,12 @@ bl_info = {
 # [x] Scene mask
 # [x] Indirect wiggle relationships
 
+#implement a constant physics step
+
+# Move object
 # Efficient list
-# Mass
 # Collision
+# Mass
 # Pinning
 
 import bpy, math
@@ -37,8 +40,13 @@ def flatten(mat):
                       for j in range(dim)]
 
 def update_prop(self,context,prop): 
-    for b in context.selected_pose_bones:
-        b[prop] = self[prop]
+    print(type(self) == bpy.types.Scene)
+    if type(self) == bpy.types.PoseBone: 
+        for b in context.selected_pose_bones:
+            b[prop] = self[prop]
+    if prop == 'wiggle_enable':
+        print('should reset')
+        bpy.ops.wiggle.reset()
         
 def get_parent(b):
     p = b.parent
@@ -49,47 +57,16 @@ def get_parent(b):
             return get_parent(p)
     else:
         return None
-
-def wiggle(b):
-    dt = bpy.context.scene.wiggle.dt
     
-    #damp
-    damp = max(min(1-b.wiggle_damp*dt, 1),0) 
-    b.wiggle.position += b.wiggle.velocity*damp
-    
-    #gravity
-    Fg = bpy.context.scene.gravity * b.wiggle_gravity
-    b.wiggle.position += Fg/b.wiggle_mass*dt*dt
-    
-    #stiff animated
+def update_matrix(b):
     mat = b.matrix
     p = get_parent(b)
     if p:
-        mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)    
-        
-    target = mat @ Vector((0,b.bone.length,0))
-    target = mat.translation + (target - mat.translation).normalized()*b.bone.length
-    s = target - b.wiggle.position #spring offset
-    Fs = b.wiggle_stiff * s #spring force
-    b.wiggle.position += Fs/b.wiggle_mass*dt*dt
-
-    #stretch 
-    if p:
-        p_pos = (p.wiggle.matrix @ relative_matrix(p.matrix,b.matrix)).translation
-        target = p_pos + (b.wiggle.position - p_pos).normalized()*b.bone.length
-        s = (target - b.wiggle.position) * (1-b.wiggle_stretch)
-        if p == b.parent:
-            b.wiggle.position += s/2
-            p.wiggle.position -= s/2
-        else:
-            b.wiggle.position += s
+        mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix) 
+        mat3 = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2]) 
     else:
-        target = b.head + (b.wiggle.position - b.head).normalized()*b.bone.length
-        s = (target - b.wiggle.position) * (1-b.wiggle_stretch)
-        b.wiggle.position += s
-    
-    #update matrix
-    mat3 = Matrix.Translation(mat.decompose()[0]) @ mat.decompose()[1].to_matrix().to_4x4()
+        mat3 = mat
+        
     tvec = relative_matrix(mat3, Matrix.Translation(b.wiggle.position)).translation
     rxz = tvec.to_track_quat('Y','Z')
     rot = rxz.to_matrix().to_4x4()
@@ -102,16 +79,69 @@ def wiggle(b):
 
     if p:
         m4 = p.matrix @ relative_matrix(p.matrix, b.matrix)
-        m5 = Matrix.Translation(m4.decompose()[0]) @ m4.decompose()[1].to_matrix().to_4x4()
+        m5 = Matrix.LocRotScale(m4.decompose()[0], m4.decompose()[1],b.matrix.decompose()[2]) 
         b.matrix = m5 @ rot @ scale
     else:
         b.matrix = mat3 @ rot @ scale
     b.wiggle.matrix = flatten(mat3 @ rot @ scale)
+
+def wiggle(b):
+    mat = b.matrix
+    p = get_parent(b)
+    if p:
+        mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
+        mat = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2])
+            
+    dt = bpy.context.scene.wiggle.dt
+    if dt:
+        multiplier = (bpy.context.scene.render.fps/60)
+        #damp
+        damp = max(min(1-b.wiggle_damp*dt, 1),0) 
+        b.wiggle.position += b.wiggle.velocity*damp
+    
+        #gravity
+        Fg = bpy.context.scene.gravity * b.wiggle_gravity
+        b.wiggle.position += Fg*dt*dt
+        
+        #stiff animated 
+        target = mat @ Vector((0,b.bone.length,0))
+        target = mat.translation + (target - mat.translation).normalized()*b.bone.length
+        s = target - b.wiggle.position #spring offset
+        Fs = b.wiggle_stiff * s * multiplier #spring force
+        b.wiggle.position += Fs*dt*dt
+        
+    update_matrix(b)
+
+def stretch(b,i):
+#    target = b.wiggle.matrix.translation + (b.wiggle.position - b.wiggle.matrix.translation).normalized()*b.bone.length
+#    s = (target - b.wiggle.position) * (1-b.wiggle_stretch)
+    if b == bpy.context.active_pose_bone:
+        bpy.context.scene.cursor.location = b.wiggle.matrix.translation
+    p = get_parent(b) 
+    if p:
+        target = p.wiggle.position + (b.wiggle.position - p.wiggle.position).normalized()*b.bone.length
+        s = (target - b.wiggle.position)*(1-b.wiggle_stretch)
+        if p == b.parent and i:
+            if b.wiggle_mass==p.wiggle_mass:
+                fac = 0.5
+            else:
+                fac = b.wiggle_mass/(p.wiggle_mass + b.wiggle_mass)
+            p.wiggle.position -= s*fac
+            b.wiggle.position += s*(1-fac)
+        else:
+            b.wiggle.position += s
+        update_matrix(p)
+    else:
+        target = b.head + (b.wiggle.position - b.head).normalized()*b.bone.length
+        s = (target - b.wiggle. position) * (1-b.wiggle_stretch)
+        b.wiggle.position += s
+    update_matrix(b)
+            
     
 @persistent
 def wiggle_pre(scene):
     if not scene.wiggle_enable: return
-    ob = bpy.context.object
+    ob = bpy.context.active_object
     if not ob.type == 'ARMATURE': return
     for b in ob.pose.bones:
         if not b.wiggle_enable: continue
@@ -119,34 +149,43 @@ def wiggle_pre(scene):
         b.rotation_quaternion = Quaternion((1,0,0,0))
         b.rotation_euler = Vector((0,0,0))
         b.scale = Vector((1,1,1))
-        bpy.context.view_layer.update()
+#        bpy.context.view_layer.update()
 
 @persistent                
 def wiggle_post(scene):
     if not scene.wiggle_enable: return
+
+    lastframe = scene.wiggle.lastframe
+    if scene.frame_current >= lastframe:
+        frames_elapsed = scene.frame_current - lastframe
+    else:
+        e1 = (scene.frame_end - lastframe) + (scene.frame_current - scene.frame_start) + 1
+        e2 = lastframe - scene.frame_current
+        frames_elapsed = min(e1,e2)
+    if frames_elapsed > 4: frames_elapsed = 1 #handle large jumps?
+    scene.wiggle.dt = 1/scene.render.fps * frames_elapsed
+    scene.wiggle.lastframe = scene.frame_current
     
     #for now do all bones on selected object: (fix with list structure later)
-#    ob = bpy.context.object
     for ob in bpy.context.selected_objects:
         if not ob.type == 'ARMATURE': continue
-
-        lastframe = scene.wiggle.lastframe
-        if scene.frame_current >= lastframe:
-            frames_elapsed = max(1,scene.frame_current - lastframe)
-        else:
-            e1 = (scene.frame_end - lastframe) + (scene.frame_current - scene.frame_start) + 1
-            e2 = lastframe - scene.frame_current
-            frames_elapsed = min(e1,e2)
-        scene.wiggle.dt = 1/scene.render.fps * max(1, frames_elapsed)
-        scene.wiggle.lastframe = scene.frame_current
-
+        
         for b in ob.pose.bones:
             if b.wiggle_enable:
                 wiggle(b)
-        for b in ob.pose.bones:
-            if b.wiggle_enable:
-                b.wiggle.velocity = b.wiggle.position - b.wiggle.position_last
-                b.wiggle.position_last = b.wiggle.position
+        count = 2
+        for i in range(scene.wiggle.iterations):
+            for b in ob.pose.bones:
+                if b.wiggle_enable:
+                    stretch(b,scene.wiggle.iterations-1-i)
+#        for b in ob.pose.bones:
+#            if b.wiggle_enable:
+#                update_matrix(b)
+        if frames_elapsed:
+            for b in ob.pose.bones:
+                if b.wiggle_enable:
+                    b.wiggle.velocity = (b.wiggle.position - b.wiggle.position_last)/max(frames_elapsed,1)
+                    b.wiggle.position_last = b.wiggle.position
             
 class WiggleReset(bpy.types.Operator):
     """Reset wiggle physics to rest state"""
@@ -169,7 +208,9 @@ class WiggleReset(bpy.types.Operator):
                 b.wiggle.velocity = Vector((0,0,0))
                 b.wiggle.matrix = flatten(rest_mat)
                 b.matrix = rest_mat
+                context.scene.wiggle.lastframe = context.scene.frame_current
                 context.scene.frame_set(context.scene.frame_current)
+        print('reset')
         return {'FINISHED'}
     
 class WIGGLE_PT_Settings(bpy.types.Panel):
@@ -180,21 +221,22 @@ class WIGGLE_PT_Settings(bpy.types.Panel):
     
     @classmethod
     def poll(cls, context):
-        return context.object
+        return context.active_object
     
     def draw(self,context):
         layout = self.layout
         layout.operator('wiggle.reset')
+        layout.prop(context.scene.wiggle, 'iterations')
         row = layout.row()
         row.prop(context.scene, 'wiggle_enable', icon = 'SCENE_DATA',icon_only=True)
-        if not context.scene.wiggle_enable or context.object.mode != 'POSE' or not context.active_pose_bone:
+        if not context.scene.wiggle_enable or context.active_object.mode != 'POSE' or not context.active_pose_bone:
             return
         b = context.active_pose_bone
         row.prop(b, 'wiggle_enable', icon = 'BONE_DATA',icon_only=True)
         row.label(text=b.name)
         if not b.wiggle_enable:
             return
-#        layout.prop(b, 'wiggle_mass')
+        layout.prop(b, 'wiggle_mass')
         layout.prop(b, 'wiggle_stiff')
         layout.prop(b, 'wiggle_stretch')
         layout.prop(b, 'wiggle_damp')
@@ -210,6 +252,7 @@ class WiggleBone(bpy.types.PropertyGroup):
 class WiggleScene(bpy.types.PropertyGroup):
     dt: bpy.props.FloatProperty()
     lastframe: bpy.props.IntProperty()
+    iterations: bpy.props.IntProperty(name='Chain Quality', min=1, default=1, max=4)
 
 def register():
     #user variables
@@ -217,7 +260,8 @@ def register():
         name = 'Enable',
         description = 'Enable jiggle on this scene',
         default = False,
-        override={'LIBRARY_OVERRIDABLE'}
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_enable')
     )
     bpy.types.PoseBone.wiggle_enable = bpy.props.BoolProperty(
         name = 'Enable',
