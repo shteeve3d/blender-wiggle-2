@@ -185,19 +185,11 @@ def constrain(b,i,dg):
         target = mat @ Vector((0,b.bone.length,0))
         s = target - b.wiggle.position
         Fs = b.wiggle_stiff * s / bpy.context.scene.wiggle.iterations
-        b.wiggle.position += Fs*dt*dt
+        return Fs*dt*dt
         
     if dt:
         p=get_parent(b)
         if p and (p==b.parent):
-            #spring
-            mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
-            mat = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2])
-            spring(b,mat)
-            
-            #stretch
-            target = p.wiggle.position + (b.wiggle.position - p.wiggle.position).normalized()*length_world(b)
-            s = (target - b.wiggle.position)*(1-b.wiggle_stretch)
             if i:
                 if b.wiggle_mass == p.wiggle_mass:
                     fac=0.5
@@ -205,6 +197,18 @@ def constrain(b,i,dg):
                     fac=b.wiggle_mass/(p.wiggle_mass + b.wiggle_mass)
             else:
                 fac = p.wiggle_stretch
+            
+            #spring
+            mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
+            mat = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2])
+            s = spring(b,mat)
+            p.wiggle.position -= s*fac
+            b.wiggle.position += s*(1-fac)
+            
+            #stretch
+            target = p.wiggle.position + (b.wiggle.position - p.wiggle.position).normalized()*length_world(b)
+            s = (target - b.wiggle.position)*(1-b.wiggle_stretch)
+            
             p.wiggle.position -= s*fac
             b.wiggle.position += s*(1-fac)
             pin(p)
@@ -213,7 +217,8 @@ def constrain(b,i,dg):
         else:#no parent
             #spring
             mat = b.id_data.matrix_world @ b.matrix
-            spring(b,mat)
+            s=spring(b,mat)
+            b.wiggle.position += s
             
             #stretch
             target = b.wiggle.matrix.translation + (b.wiggle.position - b.wiggle.matrix.translation).normalized()*length_world(b)
