@@ -189,7 +189,7 @@ def constrain(b,i,dg):
         
     if dt:
         p=get_parent(b)
-        if p and (p==b.parent):
+        if p:
             if i:
                 if b.wiggle_mass == p.wiggle_mass:
                     fac=0.5
@@ -202,15 +202,21 @@ def constrain(b,i,dg):
             mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
             mat = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2])
             s = spring(b,mat)
-            p.wiggle.position -= s*fac
-            b.wiggle.position += s*(1-fac)
+            if p == b.parent and b.bone.use_connect:
+                p.wiggle.position -= s*fac
+                b.wiggle.position += s*(1-fac)
+            else:
+                b.wiggle.position += s*fac
             
             #stretch
-            target = p.wiggle.position + (b.wiggle.position - p.wiggle.position).normalized()*length_world(b)
+            target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
             s = (target - b.wiggle.position)*(1-b.wiggle_stretch)
             
-            p.wiggle.position -= s*fac
-            b.wiggle.position += s*(1-fac)
+            if p == b.parent and b.bone.use_connect:
+                p.wiggle.position -= s*fac
+                b.wiggle.position += s*(1-fac)
+            else:
+                b.wiggle.position += s*fac
             pin(p)
             collide(p,dg)
 
