@@ -68,11 +68,17 @@ def build_list():
 
     def set_p(item):
         b=get_b(item)
-        p = get_parent(b)
-        if p:
+        if item.tail and b.wiggle_enable_head: #parent is head
             for idx, i2 in enumerate(list):
-                if (i2.object == p.id_data.name) and (i2.bone == p.name):
+                if (i2.object == b.id_data.name) and (i2.bone == b.name):
                     item.parent = idx
+                    return #head will be first occurrent of this bone
+        else:
+            p = get_parent(b)
+            if p:
+                for idx, i2 in enumerate(list):
+                    if (i2.object == p.id_data.name) and (i2.bone == p.name):
+                        item.parent = idx #parent bone will be last occurrence (tail comes after head, or head if no tail)
 
     for ob in bpy.context.scene.objects:
         if ob.type != 'ARMATURE': continue
@@ -96,7 +102,7 @@ def update_prop(self,context,prop):
     if type(self) == bpy.types.PoseBone: 
         for b in context.selected_pose_bones:
             b[prop] = self[prop]
-    if prop == 'wiggle_enable':
+    if prop == 'wiggle_enable' or 'wiggle_enable_head':
         build_list()
 
 def length_world(b):
@@ -159,7 +165,29 @@ def collide(b,dg):
 def update_matrix(item):
     b = get_b(item)
     p_item,p = get_p(item)
-    if p:
+    
+    if item.tail:
+        if p == b: #tail > head
+            if p_item.tail: #tail > p_tail
+            else: #tail > p_head
+    else:
+        if p_item.tail: #head > p_tail
+        else: #head > p_head
+    
+    if p == b: #head is parent
+        h = p
+        p_item,p = get_p(p_item) #get actual parent
+        mat = p_item.matrix @ relative_matrix(p_item.matrix, b_item.matrix)
+        if b.bone.inherit_scale == 'FULL':
+            m2 = mat
+        else:
+            diff = relative_matrix(p_item.matrix, b_item.matrix)
+            lo = Matrix.Translation((p_item.matrix @ diff).translation)
+            ro = p_item.matrix.to_quaternion().to_matrix().to_4x4() @ diff.to_quaternion().to_matrix().to_4x4()
+            sc = Matrix.LocRotScale(None,None,(b.id_data.matrix_world @ b_item.matrix).decompose()[2])
+            m2 = lo @ ro @ sc
+        
+    elif p:
         mat = p_item.matrix @ relative_matrix(p.matrix, b.matrix)
         if b.bone.inherit_scale == 'FULL':
             m2 = mat
@@ -273,7 +301,7 @@ def constrain(item,i,dg):
 @persistent
 def wiggle_pre(scene):
     if not scene.wiggle_enable: return
-    for item in scene.wiggle.list:
+    for item in scene.wiggle.list: #will run twice on head/tail?
         b = get_b(item)
         b.location = Vector((0,0,0))
         b.rotation_quaternion = Quaternion((1,0,0,0))
