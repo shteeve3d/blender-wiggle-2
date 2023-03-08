@@ -18,7 +18,8 @@ bl_info = {
 # [DONE] Bounciness improve
 # [DONE] friction improve
 # [DONE] Length stiffness 1 should have no give
-# indirect parents
+# [DONE] handle indirect parents
+# [DONE] indirect parent chain
 
 # bugs:
 # [DONE] crash when deleting a collider still referened by bone
@@ -202,8 +203,14 @@ def constrain(b,i,dg):
             mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
             mat = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2])
             s = spring(b,mat)
-            if p == b.parent and b.bone.use_connect:
-                p.wiggle.position -= s*fac
+            if p and b.wiggle_chain: # and b.bone.use_connect:
+                if b.bone.use_connect:
+                    p.wiggle.position -= s*fac
+                else:
+                    headpos = mat.translation
+                    ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
+                    headpos -=s*fac
+                    p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
                 b.wiggle.position += s*(1-fac)
             else:
                 b.wiggle.position += s*fac
@@ -212,13 +219,21 @@ def constrain(b,i,dg):
             target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
             s = (target - b.wiggle.position)*(1-b.wiggle_stretch)
             
-            if p == b.parent and b.bone.use_connect:
-                p.wiggle.position -= s*fac
+#            if p == b.parent: # and b.bone.use_connect:
+            if p and b.wiggle_chain:
+                if b.bone.use_connect:
+                    p.wiggle.position -= s*fac
+                else:
+                    headpos = mat.translation
+                    ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
+                    headpos -=s*fac
+                    p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
                 b.wiggle.position += s*(1-fac)
             else:
                 b.wiggle.position += s*fac
             pin(p)
             collide(p,dg)
+            update_matrix(p)
 
         else:#no parent
             #spring
@@ -427,19 +442,24 @@ class WIGGLE_PT_Settings(WigglePanel, bpy.types.Panel):
         row.prop(b, 'wiggle_enable', icon = 'BONE_DATA',icon_only=True)
         if not b.wiggle_enable:
             return
-        drawprops(layout,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp','wiggle_gravity'])
-        layout.separator()
-        layout.prop(b, 'wiggle_collider_type',text='Collisions')
+        col = layout.column(align=True)
+        drawprops(col,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp'])
+        layout.prop(b,'wiggle_gravity')
+        layout.prop(b,'wiggle_chain')
+#        layout.separator()
+        col = layout.column(align=True)
+        col.prop(b, 'wiggle_collider_type',text='Collisions')
         collision = False
         if b.wiggle_collider_type == 'Object':
-            layout.prop_search(b, 'wiggle_collider', context.scene, 'objects',text=' ')
+            col.prop_search(b, 'wiggle_collider', context.scene, 'objects',text=' ')
             if b.wiggle_collider: collision = True
         else:
-            layout.prop_search(b, 'wiggle_collider_collection', context.scene.collection, 'children', text=' ')
+            col.prop_search(b, 'wiggle_collider_collection', context.scene.collection, 'children', text=' ')
             if b.wiggle_collider_collection: collision = True
         if collision:
-            drawprops(layout,b,['wiggle_radius','wiggle_friction','wiggle_bounce','wiggle_sticky'])
-        layout.separator()
+            col = layout.column(align=True)
+            drawprops(col,b,['wiggle_radius','wiggle_friction','wiggle_bounce','wiggle_sticky'])
+#        layout.separator()
         layout.operator('wiggle.copy')
                 
 class WIGGLE_PT_Utilities(WigglePanel,bpy.types.Panel):
@@ -478,7 +498,6 @@ class WiggleItem(bpy.types.PropertyGroup):
 #store properties for a bone. custom properties for user editable. property group for internal calculations
 class WiggleBone(bpy.types.PropertyGroup):
     matrix: bpy.props.FloatVectorProperty(name = 'Matrix', size=16, subtype = 'MATRIX', override={'LIBRARY_OVERRIDABLE'})
-    lmatrix: bpy.props.FloatVectorProperty(name = 'LMatrix', size=16, subtype = 'MATRIX', override={'LIBRARY_OVERRIDABLE'})
     position: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     position_last: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     velocity: bpy.props.FloatVectorProperty(subtype='VELOCITY', override={'LIBRARY_OVERRIDABLE'})
@@ -562,6 +581,13 @@ def register():
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
+    )
+    bpy.types.PoseBone.wiggle_chain = bpy.props.BoolProperty(
+        name = 'Chain',
+        description = 'Bone affects its parent creating a physics chain',
+        default = True,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_enable')
     )
     bpy.types.PoseBone.wiggle_collider_type = bpy.props.EnumProperty(
         name='Collider Type',
