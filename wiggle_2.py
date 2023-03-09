@@ -279,7 +279,7 @@ def constrain(b,i,dg):
             target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
             s = stretch(target, b.wiggle.position, b.wiggle_stretch)
             if p and b.wiggle_chain:
-                fac = get_fac(b.wiggle_mass, p.wiggle_mass)
+                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
                 if b.bone.use_connect:
                     p.wiggle.position -= s*fac
                 else:
