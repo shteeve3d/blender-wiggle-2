@@ -153,7 +153,7 @@ def update_matrix(b):
         sy = (b.id_data.matrix_world @ b.matrix.translation - b.wiggle.position).length/length_world(b)
     else:
         if b.bone.inherit_scale == 'FULL':
-            l0=relative_matrix(mat, Matrix.Translation(mat @ Vector((0,b.length,0)))).translation.length
+            l0=relative_matrix(mat, Matrix.Translation(mat @ Vector((0,b.bone.length,0)))).translation.length
             l1=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
             sy = l1/l0
         else:
@@ -161,6 +161,14 @@ def update_matrix(b):
     
     if b.wiggle_head and not b.bone.use_connect:
         sy = (b.wiggle.position_head - b.wiggle.position).length/length_world(b)
+        if p and b.bone.inherit_scale == 'FULL':
+            l0=relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation.length
+            l1=(b.wiggle.position_head - b.wiggle.position).length
+            sy1 = l0/l1
+            sy = sy*sy1*(p.length/p.bone.length)
+        
+#    if b == bpy.context.active_pose_bone:
+#        bpy.context.scene.cursor.location = b.wiggle.position
             
     scale = Matrix.Scale(sy,4,Vector((0,1,0)))
     
@@ -207,19 +215,7 @@ def constrain(b,i,dg):
     def stretch(target, position, fac):
         s = target - position
         return s*(1-fac)
-    
-#    def spring_head(b, mat):
-#        target = mat.translation
-#        s = target - b.wiggle.position_head
-#        Fs = b.wiggle_stiff_head * s / bpy.context.scene.wiggle.iterations
-#        return Fs*dt*dt
-#    
-#    def spring_tail(b, mat):
-#        target = mat @ Vector((0,b.bone.length,0))
-#        s = target - b.wiggle.position
-#        Fs = b.wiggle_stiff * s / bpy.context.scene.wiggle.iterations
-#        return Fs*dt*dt
-        
+
     if dt:
         p=get_parent(b)
         if p:
@@ -266,8 +262,8 @@ def constrain(b,i,dg):
                 
         #stretch
         if b.wiggle_head and not b.bone.use_connect:
+            target = b.wiggle.position_head + (b.wiggle.position - b.wiggle.position_head).normalized()*length_world(b)
             if b.wiggle_tail: #tail stretch only relative to head
-                target = b.wiggle.position_head + (b.wiggle.position - b.wiggle.position_head).normalized()*length_world(b)
                 s = stretch(target, b.wiggle.position, b.wiggle_stretch)
                 if b.wiggle_chain:
                     fac = get_fac(b.wiggle_mass, b.wiggle_mass_head)
@@ -275,7 +271,8 @@ def constrain(b,i,dg):
                     b.wiggle.position += s*(1-fac)
                 else:
                     b.wiggle.position += s
-        else: #tail stretch relative to parent or none 
+            else: b.wiggle.position = target
+        else: #tail stretch relative to parent or none
             target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
             s = stretch(target, b.wiggle.position, b.wiggle_stretch)
             if p and b.wiggle_chain:
@@ -290,84 +287,7 @@ def constrain(b,i,dg):
                 b.wiggle.position += s*(1-fac)
             else:
                 b.wiggle.position += s
-        
-                     
-#            s = spring(b,mat)
-#            if p and b.wiggle_chain: # and b.bone.use_connect:
-#                if b.bone.use_connect:
-#                    p.wiggle.position -= s*fac
-#                else:
-#                    headpos = mat.translation
-#                    ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
-#                    headpos -=s*fac
-#                    p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
-#                b.wiggle.position += s*(1-fac)
-#            else:
-#                b.wiggle.position += s*fac
-#            
-#            #stretch
-#            target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
-#            s = (target - b.wiggle.position)*(1-b.wiggle_stretch)
-#            
-##            if p == b.parent: # and b.bone.use_connect:
-#            if p and b.wiggle_chain:
-#                if b.bone.use_connect:
-#                    p.wiggle.position -= s*fac
-#                else:
-#                    headpos = mat.translation
-#                    ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
-#                    headpos -=s*fac
-#                    p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
-#                b.wiggle.position += s*(1-fac)
-#            else:
-#                b.wiggle.position += s*fac
-#            pin(p)
-#            collide(p,dg)
-#            update_matrix(p)
 
-#        else:#no parent
-#            #spring
-#            if b.wiggle_head and not b.bone.use_connect:
-#                target = (b.id_data.matrix_world @ b.matrix).translation
-#                b.wiggle.position_head += spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
-#                update_matrix(b)
-#                
-#                mat = b.id_data.matrix_world @ b.matrix
-#                mat = Matrix.LocRotScale(b.wiggle.matrix.translation, mat.decompose()[1], mat.decompose()[2])
-#                target = mat @ Vector((0,b.bone.length,0))
-#                if b.wiggle_tail:
-#                    s=spring(target, b.wiggle.position, b.wiggle_stiff)
-#                    if b.wiggle_chain:
-#                        fac = get_fac(b.wiggle_mass, b.wiggle_mass_head)
-#                        b.wiggle.position_head -= s*fac
-#                        b.wiggle.position += s*(1-fac)
-#                    else:
-#                        b.wiggle.position += s
-#                else:
-#                    b.wiggle.position = target
-#            else: #must only be tail
-#                target = b.id_data.matrix_world @ b.matrix @ Vector((0,b.bone.length,0))
-#                b.wiggle.position += spring(target, b.wiggle.position, b.wiggle_stiff)
-#            
-#            #stretch
-#            if b.wiggle_head and not b.bone.use_connect:
-#                if b.parent:
-##                    anchor = b.id_data.matrix_world @ b.parent.tail
-##                    l = (b.id_data.matrix_world @ b.parent.tail - b.id_data.matrix_world @ b.head).length
-##                    target = anchor + (b.wiggle.position_head - anchor).normalized()*l
-##                    b.wiggle.position_head += stretch(target, b.wiggle.position_head, b.wiggle_stretch_head)
-#                    if b.wiggle_tail:
-#                        target = b.wiggle.position_head + (b.wiggle.position - b.wiggle.position_head).normalized()*length_world(b)
-#                        s = stretch(target, b.wiggle.position, b.wiggle_stretch)
-#                        if b.wiggle_chain:
-#                            fac = get_fac(b.wiggle_mass, b.wiggle_mass_head)
-#                            b.wiggle.position_head -= s*fac
-#                            b.wiggle.position += s*(1-fac)
-#                        else:
-#                            b.wiggle.position += s
-#            else: #must only be tail
-#                target = b.wiggle.matrix.translation + (b.wiggle.position - b.wiggle.matrix.translation).normalized()*length_world(b)
-#                b.wiggle.position += stretch(target, b.wiggle.position, b.wiggle_stretch)
         if p:
             update_matrix(p)
         pin(b)
