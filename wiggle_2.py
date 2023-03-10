@@ -73,13 +73,22 @@ def length_world(b):
 def collider_poll(self, object):
     return object.type == 'MESH'
 
-def collide(b,dg):
+def collide(b,dg,head=False):
     dt = bpy.context.scene.wiggle.dt
     
-    pos = b.wiggle.position
-    vel = b.wiggle.velocity
-    cp = b.wiggle.collision_point
-    co = b.wiggle.collision_ob
+    if head:
+        pos = b.wiggle.position_head
+        vel = b.wiggle.velocity_head
+        cp = b.wiggle.collision_point_head
+        co = b.wiggle.collision_ob_head
+        cn = b.wiggle.collision_normal_head
+    else:
+        pos = b.wiggle.position
+        vel = b.wiggle.velocity
+        cp = b.wiggle.collision_point
+        co = b.wiggle.collision_ob
+        cn = b.wiggle.collision_normal_head
+        
     radius = b.wiggle_radius
     sticky = b.wiggle_sticky
     bounce = b.wiggle_bounce
@@ -115,14 +124,22 @@ def collide(b,dg):
             col = True
             co = collider
             cp = relative_matrix(cmw, Matrix.Translation(pos)).translation
-            b.wiggle.collision_normal = nv
+#            b.wiggle.collision_normal = nv
+            cn = nv
     if not col:
         co = None
-        cp = Vector((0,0,0))
-        
-    b.wiggle.position = pos
-    b.wiggle.collision_point = cp
-    b.wiggle.collision_ob = co  
+        cp = cn = Vector((0,0,0))
+    
+    if head:
+        b.wiggle.position_head = pos
+        b.wiggle.collision_point_head = cp
+        b.wiggle.collision_ob_head = co  
+        b.wiggle.collision_normal_head = cn
+    else:
+        b.wiggle.position = pos
+        b.wiggle.collision_point = cp
+        b.wiggle.collision_ob = co  
+        b.wiggle.collision_normal = cn
 
 def update_matrix(b):
     loc = Matrix.Translation(Vector((0,0,0)))
@@ -143,27 +160,15 @@ def update_matrix(b):
         m2 = mat
             
     if b.wiggle_head and not b.bone.use_connect:
-#        m2 = Matrix.LocRotScale(b.wiggle.position_head,m2.decompose()[1],m2.decompose()[2])
         m2 = Matrix.Translation(b.wiggle.position_head - m2.translation) @ m2
-#        if b.bone.inherit_scale == 'FULL':
-#            pass
-            
-#        m3 = m2
-#        if b.bone.inherit_scale == 'FULL':
-#            m2 = mat
-#            vec = relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation
-#            m3 = Matrix.LocRotScale(b.wiggle.position_head,m2.decompose()[1],m2.decompose()[2])
-#        vec = relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation
-#        loc = Matrix.Translation(relative_matrix(mat, m2).translation)
         loc = Matrix.Translation(relative_matrix(mat, Matrix.Translation(b.wiggle.position_head)).translation)
         mat = m2
-#    else:
     vec = relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation
     rxz = vec.to_track_quat('Y','Z')
     rot = rxz.to_matrix().to_4x4()
     
-    if b == bpy.context.active_pose_bone:
-        bpy.context.scene.cursor.location = b.wiggle.position
+#    if b.wiggle_head:
+#        bpy.context.scene.cursor.location = b.wiggle.position
     
     if b.bone.inherit_scale == 'FULL':
         l0=relative_matrix(mat, Matrix.Translation(mat @ Vector((0,b.bone.length,0)))).translation.length
@@ -184,7 +189,6 @@ def update_matrix(b):
             l0=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
             l1=(b.wiggle.position_head - b.wiggle.position).length
             sy = sy*(l0/l1)
-##            sy = sy*sy1*(p.length/p.bone.length)
             if b.parent:
                 sy = sy*(b.parent.length/b.parent.bone.length)
             
@@ -208,15 +212,15 @@ def move(b,dg):
             b.wiggle.velocity=b.wiggle.velocity*damp
             Fg = bpy.context.scene.gravity * b.wiggle_gravity * dt * dt
             b.wiggle.position += (b.wiggle.velocity + Fg)
+            pin(b)
+            collide(b,dg)
         
         if b.wiggle_head and not b.bone.use_connect:
             damp = max(min(1-b.wiggle_damp_head*dt,1),0)
             b.wiggle.velocity_head = b.wiggle.velocity_head*damp
             Fg = bpy.context.scene.gravity * b.wiggle_gravity_head * dt * dt
             b.wiggle.position_head += (b.wiggle.velocity_head + Fg)
-        
-        pin(b)
-        collide(b,dg)
+            collide(b,dg,True)
         update_matrix(b)
 
 def constrain(b,i,dg):
@@ -240,7 +244,7 @@ def constrain(b,i,dg):
             mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
         else:
             mat = b.id_data.matrix_world @ b.matrix
-            
+        update_p = False  
         #spring
         if b.wiggle_head and not b.bone.use_connect:
             target = mat.translation
@@ -275,6 +279,7 @@ def constrain(b,i,dg):
                     headpos -=s*fac
                     p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
                 b.wiggle.position += s*(1-fac)
+                update_p = True
             else:
                 b.wiggle.position += s
                 
@@ -303,13 +308,18 @@ def constrain(b,i,dg):
                     headpos -=s*fac
                     p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
                 b.wiggle.position += s*(1-fac)
+                update_p = True
             else:
                 b.wiggle.position += s
 
-        if p:
+        if update_p:
+            collide(p,dg)#would only be tail changing
             update_matrix(p)
-        pin(b)
-        collide(b,dg)
+        if b.wiggle_tail:
+            pin(b)
+            collide(b,dg)
+        if b.wiggle_head:
+            collide(b,dg,True)
     update_matrix(b)
  
         
@@ -360,7 +370,7 @@ def wiggle_post(scene,dg):
         for wb in ob.wiggle.list:
             bones.append(ob.pose.bones[wb.name])
         for b in bones:
-            b.wiggle.collision_normal = Vector((0,0,0))
+            b.wiggle.collision_normal = b.wiggle.collision_normal_head = Vector((0,0,0))
             move(b,dg)
         for i in range(scene.wiggle.iterations):
             for b in bones:
@@ -371,6 +381,8 @@ def wiggle_post(scene,dg):
                 b.wiggle.velocity_head = (b.wiggle.position_head - b.wiggle.position_last_head)/max(frames_elapsed,1)
                 if b.wiggle.collision_normal.length:
                     b.wiggle.velocity = b.wiggle.velocity.reflect(b.wiggle.collision_normal)*b.wiggle_bounce
+                if b.wiggle.collision_normal_head.length:
+                    b.wiggle.velocity_head = b.wiggle.velocity_head.reflect(b.wiggle.collision_normal_head)*b.wiggle_bounce
                 b.wiggle.position_last = b.wiggle.position
                 b.wiggle.position_last_head = b.wiggle.position_head
             
@@ -606,6 +618,10 @@ class WiggleBone(bpy.types.PropertyGroup):
     position_head: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     position_last_head: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     velocity_head: bpy.props.FloatVectorProperty(subtype='VELOCITY', override={'LIBRARY_OVERRIDABLE'})
+    
+    collision_point_head:bpy.props.FloatVectorProperty(subtype = 'TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
+    collision_ob_head: bpy.props.PointerProperty(type=bpy.types.Object, override={'LIBRARY_OVERRIDABLE'})
+    collision_normal_head: bpy.props.FloatVectorProperty(subtype = 'TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     
 class WiggleObject(bpy.types.PropertyGroup):
     list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
