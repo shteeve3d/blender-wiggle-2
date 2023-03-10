@@ -141,37 +141,55 @@ def update_matrix(b):
     else:
         mat = b.id_data.matrix_world @ b.matrix
         m2 = mat
+            
     if b.wiggle_head and not b.bone.use_connect:
-        m2 = Matrix.LocRotScale(b.wiggle.position_head,mat.decompose()[1],mat.decompose()[2])
-        loc = Matrix.Translation(relative_matrix(mat, m2).translation)
-    
+#        m2 = Matrix.LocRotScale(b.wiggle.position_head,m2.decompose()[1],m2.decompose()[2])
+        m2 = Matrix.Translation(b.wiggle.position_head - m2.translation) @ m2
+#        if b.bone.inherit_scale == 'FULL':
+#            pass
+            
+#        m3 = m2
+#        if b.bone.inherit_scale == 'FULL':
+#            m2 = mat
+#            vec = relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation
+#            m3 = Matrix.LocRotScale(b.wiggle.position_head,m2.decompose()[1],m2.decompose()[2])
+#        vec = relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation
+#        loc = Matrix.Translation(relative_matrix(mat, m2).translation)
+        loc = Matrix.Translation(relative_matrix(mat, Matrix.Translation(b.wiggle.position_head)).translation)
+        mat = m2
+#    else:
     vec = relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation
     rxz = vec.to_track_quat('Y','Z')
     rot = rxz.to_matrix().to_4x4()
     
-    if not p:
-        sy = (b.id_data.matrix_world @ b.matrix.translation - b.wiggle.position).length/length_world(b)
+    if b == bpy.context.active_pose_bone:
+        bpy.context.scene.cursor.location = b.wiggle.position
+    
+    if b.bone.inherit_scale == 'FULL':
+        l0=relative_matrix(mat, Matrix.Translation(mat @ Vector((0,b.bone.length,0)))).translation.length
+        l1=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
+        sy = l1/l0
     else:
-        if b.bone.inherit_scale == 'FULL':
-            l0=relative_matrix(mat, Matrix.Translation(mat @ Vector((0,b.bone.length,0)))).translation.length
-            l1=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
-            sy = l1/l0
+        par = b.parent
+        if par:
+            sy=(b.id_data.matrix_world @ par.matrix @ relative_matrix(par.matrix, b.matrix).translation - b.wiggle.position).length/length_world(b)
+            if p:
+                sy = (p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix).translation - b.wiggle.position).length/length_world(b)
         else:
-            sy = (p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix).translation - b.wiggle.position).length/length_world(b)
+            sy = (b.id_data.matrix_world @ b.matrix.translation - b.wiggle.position).length/length_world(b)
     
     if b.wiggle_head and not b.bone.use_connect:
         sy = (b.wiggle.position_head - b.wiggle.position).length/length_world(b)
-        if p and b.bone.inherit_scale == 'FULL':
-            l0=relative_matrix(m2, Matrix.Translation(b.wiggle.position)).translation.length
+        if b.bone.inherit_scale == 'FULL':
+            l0=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
             l1=(b.wiggle.position_head - b.wiggle.position).length
-            sy1 = l0/l1
-            sy = sy*sy1*(p.length/p.bone.length)
-        
-#    if b == bpy.context.active_pose_bone:
-#        bpy.context.scene.cursor.location = b.wiggle.position
+            sy = sy*(l0/l1)
+##            sy = sy*sy1*(p.length/p.bone.length)
+            if b.parent:
+                sy = sy*(b.parent.length/b.parent.bone.length)
             
     scale = Matrix.Scale(sy,4,Vector((0,1,0)))
-    
+
     b.matrix = b.matrix @ loc @ rot @ scale
     b.wiggle.matrix = flatten(m2 @ rot @ scale)
     
@@ -227,10 +245,10 @@ def constrain(b,i,dg):
         if b.wiggle_head and not b.bone.use_connect:
             target = mat.translation
             b.wiggle.position_head += spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
-            update_matrix(b)
+#            update_matrix(b)
             
 #            mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
-            mat = Matrix.LocRotScale(b.wiggle.matrix.translation, mat.decompose()[1], b.matrix.decompose()[2])
+            mat = Matrix.LocRotScale(b.wiggle.position_head, mat.decompose()[1], b.matrix.decompose()[2])
             target = mat @ Vector((0,b.bone.length,0))
             if b.wiggle_tail:
                 s = spring(target, b.wiggle.position, b.wiggle_stiff)
@@ -508,7 +526,7 @@ class WIGGLE_PT_Armature(WigglePanel,bpy.types.Panel):
             row.prop(b,'wiggle_head')
             if b.wiggle_head:
 #                row.prop(b,'wiggle_chain_head', icon_only=True, icon='LINK_BLEND')
-                drawprops(col,b,['wiggle_mass_head','wiggle_stiff_head','wiggle_stretch_head','wiggle_damp_head'])
+                drawprops(col,b,['wiggle_mass_head','wiggle_stiff_head','wiggle_damp_head'])
                 col.separator()
                 col.prop(b,'wiggle_gravity_head')
                 col.separator()
