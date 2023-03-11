@@ -98,7 +98,7 @@ def collide(b,dg,head=False):
         vel = b.wiggle.velocity
         cp = b.wiggle.collision_point
         co = b.wiggle.collision_ob
-        cn = b.wiggle.collision_normal_head
+        cn = b.wiggle.collision_normal
         
         collider_type = b.wiggle_collider_type
         wiggle_collider = b.wiggle_collider
@@ -779,7 +779,7 @@ def register():
         description = 'Bone affects its parent creating a physics chain',
         default = True,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_enable')
+        update=lambda s, c: update_prop(s, c, 'wiggle_chain')
     )
     
     #HEAD PROPS
@@ -823,13 +823,6 @@ def register():
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
-    )
-    bpy.types.PoseBone.wiggle_chain_head = bpy.props.BoolProperty(
-        name = 'Chain',
-        description = 'Bone affects its parent creating a physics chain',
-        default = True,
-        override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_enable')
     )
     
     #TAIL COLLISION
