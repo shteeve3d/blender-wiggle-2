@@ -356,8 +356,8 @@ def wiggle_pre(scene):
 def wiggle_post(scene,dg):
     global reset
     if reset: return
-
     if not scene.wiggle_enable: return
+    if scene.wiggle.is_rendering: return
 
     lastframe = scene.wiggle.lastframe
     if (scene.frame_current == scene.frame_start) and (scene.wiggle.loop == False) and (scene.wiggle.is_preroll == False):
@@ -397,6 +397,18 @@ def wiggle_post(scene,dg):
                 b.wiggle.velocity_head = (b.wiggle.position_head - b.wiggle.position_last_head)/max(frames_elapsed,1) + vb
                 b.wiggle.position_last = b.wiggle.position
                 b.wiggle.position_last_head = b.wiggle.position_head
+                
+@persistent        
+def wiggle_render_pre(scene):
+    scene.wiggle.is_rendering = True
+    
+@persistent
+def wiggle_render_post(scene):
+    scene.wiggle.is_rendering = False
+    
+@persistent
+def wiggle_render_cancel(scene):
+    scene.wiggle.is_rendering = False
             
 class WiggleCopy(bpy.types.Operator):
     """Copy active wiggle settings to selected bones"""
@@ -697,6 +709,7 @@ class WiggleScene(bpy.types.PropertyGroup):
     preroll: bpy.props.IntProperty(name = 'Preroll', description='Frames to run simulation before bake', min=0, default=0)
     is_preroll: bpy.props.BoolProperty(default=False)
     bake_overwrite: bpy.props.BoolProperty(name='Overwrite', description='Bake wiggle into current action, instead of creating a new one', default = False)
+    is_rendering: bpy.props.BoolProperty(default=False)
 
 def register():
     
@@ -967,9 +980,13 @@ def register():
 #    bpy.app.handlers.frame_change_post.clear()
 #    bpy.app.handlers.render_pre.clear()
 #    bpy.app.handlers.render_post.clear()
+#    bpy.app.handlers.render_cancel.clear()
     
     bpy.app.handlers.frame_change_pre.append(wiggle_pre)
     bpy.app.handlers.frame_change_post.append(wiggle_post)
+    bpy.app.handlers.render_pre.append(wiggle_render_pre)
+    bpy.app.handlers.render_post.append(wiggle_render_post)
+    bpy.app.handlers.render_cancel.append(wiggle_render_cancel)
 
 def unregister():
     bpy.utils.unregister_class(WiggleItem)
@@ -988,6 +1005,9 @@ def unregister():
     
     bpy.app.handlers.frame_change_pre.remove(wiggle_pre)
     bpy.app.handlers.frame_change_post.remove(wiggle_post)
+    bpy.app.handlers.render_pre.remove(wiggle_render_pre)
+    bpy.app.handlers.render_post.remove(wiggle_render_post)
+    bpy.app.handlers.render_cancel.remove(wiggle_render_cancel)
     
 if __name__ == "__main__":
     register()
