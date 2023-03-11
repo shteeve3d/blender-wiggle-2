@@ -113,11 +113,9 @@ def collide(b,dg,head=False):
     if collider_type == 'Object' and wiggle_collider:
         if wiggle_collider.name in bpy.context.scene.objects:
             colliders = [wiggle_collider]
-        else: wiggle_collider = None
     if collider_type == 'Collection' and wiggle_collection:
         if wiggle_collection.name in bpy.context.scene.collection.children:
             colliders = [ob for ob in wiggle_collection.objects if ob.type == 'MESH']
-        else: wiggle_collection = None
     col = False
     for collider in colliders:
         cmw = collider.matrix_world
@@ -149,19 +147,11 @@ def collide(b,dg,head=False):
         b.wiggle.collision_point_head = cp
         b.wiggle.collision_ob_head = co  
         b.wiggle.collision_normal_head = cn
-        if collider_type == 'Object':
-            b.wiggle_collider_head = wiggle_collider
-        else:
-            b.wiggle_collider_collection_head = wiggle_collection
     else:
         b.wiggle.position = pos
         b.wiggle.collision_point = cp
         b.wiggle.collision_ob = co  
         b.wiggle.collision_normal = cn
-        if collider_type == 'Object':
-            b.wiggle_collider = wiggle_collider
-        else:
-            b.wiggle_collider_collection = wiggle_collection
 
 def update_matrix(b):
     loc = Matrix.Translation(Vector((0,0,0)))
@@ -578,8 +568,13 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
         col.prop(b, 'wiggle_collider_type_head',text='Collisions')
         collision = False
         if b.wiggle_collider_type_head == 'Object':
-            col.prop_search(b, 'wiggle_collider_head', context.scene, 'objects',text=' ')
-            if b.wiggle_collider_head: collision = True
+            row = col.row(align=True)
+            row.prop_search(b, 'wiggle_collider_head', context.scene, 'objects',text=' ')
+            if b.wiggle_collider_head:
+                if b.wiggle_collider_head.name in context.scene.objects:
+                    collision = True
+                else:
+                    row.label(text='',icon='UNLINKED')
         else:
             col.prop_search(b, 'wiggle_collider_collection_head', context.scene.collection, 'children', text=' ')
             if b.wiggle_collider_collection_head: collision = True
@@ -618,8 +613,13 @@ class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
         col.prop(b, 'wiggle_collider_type',text='Collisions')
         collision = False
         if b.wiggle_collider_type == 'Object':
-            col.prop_search(b, 'wiggle_collider', context.scene, 'objects',text=' ')
-            if b.wiggle_collider: collision = True
+            row = col.row(align=True)
+            row.prop_search(b, 'wiggle_collider', context.scene, 'objects',text=' ')
+            if b.wiggle_collider:
+                if b.wiggle_collider.name in context.scene.objects:
+                    collision = True
+                else:
+                    row.label(text='',icon='UNLINKED')
         else:
             col.prop_search(b, 'wiggle_collider_collection', context.scene.collection, 'children', text=' ')
             if b.wiggle_collider_collection: collision = True
