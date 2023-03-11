@@ -370,6 +370,7 @@ def wiggle_post(scene,dg):
         e2 = lastframe - scene.frame_current
         frames_elapsed = min(e1,e2)
     if frames_elapsed > 4: frames_elapsed = 1 #handle large jumps?
+    if scene.wiggle.is_preroll: frames_elapsed = 1
     scene.wiggle.dt = 1/scene.render.fps * frames_elapsed
     scene.wiggle.lastframe = scene.frame_current
     
