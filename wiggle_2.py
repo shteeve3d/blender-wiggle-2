@@ -387,14 +387,14 @@ def wiggle_post(scene,dg):
                 constrain(b, scene.wiggle.iterations-1-i,dg)
         if frames_elapsed:
             for b in bones:
+                vb = Vector((0,0,0))
                 if b.wiggle.collision_normal.length:
-                    b.wiggle.velocity = b.wiggle.velocity.reflect(b.wiggle.collision_normal)*b.wiggle_bounce
-                else:
-                    b.wiggle.velocity = (b.wiggle.position - b.wiggle.position_last)/max(frames_elapsed,1)
+                    vb = b.wiggle.velocity.reflect(b.wiggle.collision_normal).project(b.wiggle.collision_normal)*b.wiggle_bounce
+                b.wiggle.velocity = (b.wiggle.position - b.wiggle.position_last)/max(frames_elapsed,1) + vb
+                vb = Vector((0,0,0)) 
                 if b.wiggle.collision_normal_head.length:
-                    b.wiggle.velocity_head = b.wiggle.velocity_head.reflect(b.wiggle.collision_normal_head)*b.wiggle_bounce_head
-                else:
-                    b.wiggle.velocity_head = (b.wiggle.position_head - b.wiggle.position_last_head)/max(frames_elapsed,1)
+                    vb = b.wiggle.velocity_head.reflect(b.wiggle.collision_normal_head).project(b.wiggle.collision_normal_head)*b.wiggle_bounce_head
+                b.wiggle.velocity_head = (b.wiggle.position_head - b.wiggle.position_last_head)/max(frames_elapsed,1) + vb
                 b.wiggle.position_last = b.wiggle.position
                 b.wiggle.position_last_head = b.wiggle.position_head
             
@@ -482,7 +482,7 @@ class WiggleSelect(bpy.types.Operator):
         return {'FINISHED'}  
     
 class WiggleBake(bpy.types.Operator):
-    """Bake this object's wiggle bones to keyframes"""
+    """Bake this object's visible wiggle bones to keyframes"""
     bl_idname = "wiggle.bake"
     bl_label = "Bake Wiggle"
     
