@@ -140,7 +140,7 @@ def collide(b,dg,head=False):
             cn = nv
     if not col:
         co = None
-        cp = cn = Vector((0,0,0))
+#        cp = cn = Vector((0,0,0))
     
     if head:
         b.wiggle.position_head = pos
@@ -184,7 +184,6 @@ def update_matrix(b):
     
     if b.bone.inherit_scale == 'FULL':
         l0 = b.bone.length
-#        l0=relative_matrix(mat, Matrix.Translation(mat @ Vector((0,b.bone.length,0)))).translation.length
         l1=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
         sy = l1/l0
     else:
@@ -262,9 +261,7 @@ def constrain(b,i,dg):
         if b.wiggle_head and not b.bone.use_connect:
             target = mat.translation
             b.wiggle.position_head += spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
-#            update_matrix(b)
-            
-#            mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
+
             mat = Matrix.LocRotScale(b.wiggle.position_head, mat.decompose()[1], b.matrix.decompose()[2])
             target = mat @ Vector((0,b.bone.length,0))
             if b.wiggle_tail:
@@ -278,7 +275,6 @@ def constrain(b,i,dg):
             else:
                 b.wiggle.position = target
         else:
-#            mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
             mat = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2])
             target = mat @ Vector((0, b.bone.length,0))
             s = spring(target, b.wiggle.position, b.wiggle_stiff)
@@ -390,12 +386,14 @@ def wiggle_post(scene,dg):
                 constrain(b, scene.wiggle.iterations-1-i,dg)
         if frames_elapsed:
             for b in bones:
-                b.wiggle.velocity = (b.wiggle.position - b.wiggle.position_last)/max(frames_elapsed,1)
-                b.wiggle.velocity_head = (b.wiggle.position_head - b.wiggle.position_last_head)/max(frames_elapsed,1)
                 if b.wiggle.collision_normal.length:
                     b.wiggle.velocity = b.wiggle.velocity.reflect(b.wiggle.collision_normal)*b.wiggle_bounce
+                else:
+                    b.wiggle.velocity = (b.wiggle.position - b.wiggle.position_last)/max(frames_elapsed,1)
                 if b.wiggle.collision_normal_head.length:
                     b.wiggle.velocity_head = b.wiggle.velocity_head.reflect(b.wiggle.collision_normal_head)*b.wiggle_bounce_head
+                else:
+                    b.wiggle.velocity_head = (b.wiggle.position_head - b.wiggle.position_last_head)/max(frames_elapsed,1)
                 b.wiggle.position_last = b.wiggle.position
                 b.wiggle.position_last_head = b.wiggle.position_head
             
