@@ -19,6 +19,7 @@ Wiggle 2 is a ground up rewrite of the [wiggle bones add-on](https://github.com/
 
 ### Collision support.
 - Bones can collide with a specified mesh or collection, and respond with friction, bouncing, or even stickiness.
+!["Collision"](/images/collision.png?raw=true "Collision")
 
 ### Linking and library overrides.
 - Wiggle 2 works properly on library linked assets, with overrides allowing you to tune your wiggle to each scene.
