@@ -49,10 +49,9 @@ def build_list():
         if not ob.wiggle_enable: continue
         wo = bpy.context.scene.wiggle.list.add()
         wo.name = ob.name
-        ob.wiggle.list.clear()
         for b in ob.pose.bones:
             if b.wiggle_head or b.wiggle_tail:
-                wb = ob.wiggle.list.add()
+                wb = wo.list.add()
                 wb.name = b.name
         
 def update_prop(self,context,prop): 
@@ -340,7 +339,7 @@ def wiggle_pre(scene):
             build_list()
             return
         ob = scene.objects[wo.name]
-        for wb in ob.wiggle.list:
+        for wb in wo.list:
             if wb.name not in ob.pose.bones:
                 build_list()
                 return
@@ -377,7 +376,7 @@ def wiggle_post(scene,dg):
     for wo in scene.wiggle.list:
         ob = scene.objects[wo.name]
         bones = []
-        for wb in ob.wiggle.list:
+        for wb in wo.list:
             bones.append(ob.pose.bones[wb.name])
         for b in bones:
             b.wiggle.collision_normal = b.wiggle.collision_normal_head = Vector((0,0,0))
@@ -464,15 +463,23 @@ class WiggleReset(bpy.types.Operator):
         reset = True
         context.scene.frame_set(context.scene.frame_current)
         reset = False
+        rebuild = False
         for wo in context.scene.wiggle.list:
-            ob = context.scene.objects[wo.name]
-            for wb in ob.wiggle.list:
-                b = ob.pose.bones[wb.name]
+            ob = context.scene.objects.get(wo.name)
+            if not ob:
+                rebuild = True
+                continue
+            for wb in wo.list:
+                b = ob.pose.bones.get(wb.name)
+                if not b:
+                    rebuild = True
+                    continue
                 b.wiggle.position = b.wiggle.position_last = (b.id_data.matrix_world @ Matrix.Translation(b.tail)).translation
                 b.wiggle.position_head = b.wiggle.position_last_head = (b.id_data.matrix_world @ b.matrix).translation
                 b.wiggle.velocity = b.wiggle.velocity_head = Vector((0,0,0))
                 b.wiggle.matrix = flatten(b.id_data.matrix_world @ b.matrix)
                 context.scene.wiggle.lastframe = context.scene.frame_current
+        if rebuild: build_list()
         return {'FINISHED'}
     
 class WiggleSelect(bpy.types.Operator):
@@ -486,12 +493,20 @@ class WiggleSelect(bpy.types.Operator):
     
     def execute(self,context):
         bpy.ops.pose.select_all(action='DESELECT')
-        for ob in context.selected_objects:
-            if ob.wiggle_enable and ob.mode == 'POSE':
-                for wb in ob.wiggle.list:
-                    b = ob.pose.bones[wb.name]
-                    b.bone.select = True
-        return {'FINISHED'}  
+        rebuild = False
+        for wo in context.scene.wiggle.list:
+            ob = context.scene.objects.get(wo.name)
+            if not ob:
+                rebuild = True
+                continue
+            for wb in wo.list:
+                b = ob.pose.bones.get(wb.name)
+                if not b:
+                    rebuild = True
+                    continue
+                b.bone.select = True
+        if rebuild: build_list()
+        return {'FINISHED'}
     
 class WiggleBake(bpy.types.Operator):
     """Bake this object's visible wiggle bones to keyframes"""
@@ -675,8 +690,12 @@ class WIGGLE_PT_Bake(WigglePanel,bpy.types.Panel):
         layout.prop(context.scene.wiggle, 'bake_overwrite')
         layout.operator('wiggle.bake')
         
+class WiggleBoneItem(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(override={'LIBRARY_OVERRIDABLE'})
+    
 class WiggleItem(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty(override={'LIBRARY_OVERRIDABLE'})        
+    name: bpy.props.StringProperty(override={'LIBRARY_OVERRIDABLE'})  
+    list: bpy.props.CollectionProperty(type=WiggleBoneItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})    
 
 #store properties for a bone. custom properties for user editable. property group for internal calculations
 class WiggleBone(bpy.types.PropertyGroup):
@@ -698,7 +717,7 @@ class WiggleBone(bpy.types.PropertyGroup):
     collision_normal_head: bpy.props.FloatVectorProperty(subtype = 'TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     
 class WiggleObject(bpy.types.PropertyGroup):
-    list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
+    list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE'})
     
 class WiggleScene(bpy.types.PropertyGroup):
     dt: bpy.props.FloatProperty()
@@ -958,6 +977,7 @@ def register():
     )
     
     #internal variables
+    bpy.utils.register_class(WiggleBoneItem)
     bpy.utils.register_class(WiggleItem)
     bpy.utils.register_class(WiggleBone)
     bpy.types.PoseBone.wiggle = bpy.props.PointerProperty(type=WiggleBone, override={'LIBRARY_OVERRIDABLE'})
@@ -989,6 +1009,7 @@ def register():
     bpy.app.handlers.render_cancel.append(wiggle_render_cancel)
 
 def unregister():
+    bpy.utils.unregister_class(WiggleBoneItem)
     bpy.utils.unregister_class(WiggleItem)
     bpy.utils.unregister_class(WiggleBone)
     bpy.utils.unregister_class(WiggleObject)
