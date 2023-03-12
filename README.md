@@ -14,7 +14,8 @@ Wiggle 2 is a ground up rewrite of the [wiggle bones add-on](https://github.com/
 - Wiggling now behaves more realistically, especially when simulating simple ropes or chains.
 
 ### Pinning.
-- Using a damped track constraint on a wiggling bone pins it to its target, with other bones responding accordingly. 
+- Using a damped track constraint on a wiggling bone pins it to its target, with other bones responding accordingly.
+!["Pinning"](/images/pinning.png?raw=true "Pinning")
 
 ### Collision support.
 - Bones can collide with a specified mesh or collection, and respond with friction, bouncing, or even stickiness.
