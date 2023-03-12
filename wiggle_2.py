@@ -113,7 +113,7 @@ def collide(b,dg,head=False):
         if wiggle_collider.name in bpy.context.scene.objects:
             colliders = [wiggle_collider]
     if collider_type == 'Collection' and wiggle_collection:
-        if wiggle_collection.name in bpy.context.scene.collection.children:
+        if wiggle_collection in bpy.context.scene.collection.children_recursive:
             colliders = [ob for ob in wiggle_collection.objects if ob.type == 'MESH']
     col = False
     for collider in colliders:
@@ -344,7 +344,19 @@ def wiggle_pre(scene):
                 build_list()
                 return
             b = ob.pose.bones[wb.name]
-
+            if not b.wiggle.collision_col:
+                if b.wiggle_collider_collection:
+                    b.wiggle_collider_collection = bpy.data.collections.get(b.wiggle_collider_collection.name)
+                    b.wiggle.collision_col = scene.collection
+                elif b.wiggle_collider_collection_head:
+                    bpy.data.collections.get(b.wiggle_collider_collection_head.name)
+                    b.wiggle.collision_col = scene.collection
+                elif b.wiggle_collider:
+                    bpy.data.objects.get(b.wiggle_collider.name)
+                    b.wiggle.collision_col = scene.collection
+                elif b.wiggle_collider_head:
+                    bpy.data.objects.get(b.wiggle_collider_head.name)
+                    b.wiggle.collision_col = scene.collection
             b.location = Vector((0,0,0))
             b.rotation_quaternion = Quaternion((1,0,0,0))
             b.rotation_euler = Vector((0,0,0))
@@ -602,8 +614,14 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
                 else:
                     row.label(text='',icon='UNLINKED')
         else:
-            col.prop_search(b, 'wiggle_collider_collection_head', context.scene.collection, 'children', text=' ')
-            if b.wiggle_collider_collection_head: collision = True
+            row = col.row(align=True)
+            row.prop_search(b, 'wiggle_collider_collection_head', bpy.data, 'collections', text=' ')
+            if b.wiggle_collider_collection_head:
+                if b.wiggle_collider_collection_head in context.scene.collection.children_recursive:
+                    collision = True
+                else:
+                    row.label(text='',icon='UNLINKED')
+            
         if collision:
             col = layout.column(align=True)
             drawprops(col,b,['wiggle_radius_head','wiggle_friction_head','wiggle_bounce_head','wiggle_sticky_head'])
@@ -647,8 +665,13 @@ class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
                 else:
                     row.label(text='',icon='UNLINKED')
         else:
-            col.prop_search(b, 'wiggle_collider_collection', context.scene.collection, 'children', text=' ')
-            if b.wiggle_collider_collection: collision = True
+            row = col.row(align=True)
+            row.prop_search(b, 'wiggle_collider_collection', bpy.data, 'collections', text=' ')
+            if b.wiggle_collider_collection:
+                if b.wiggle_collider_collection in context.scene.collection.children_recursive:
+                    collision = True
+                else:
+                    row.label(text='',icon='UNLINKED')
         if collision:
             col = layout.column(align=True)
             drawprops(col,b,['wiggle_radius','wiggle_friction','wiggle_bounce','wiggle_sticky'])
@@ -707,6 +730,7 @@ class WiggleBone(bpy.types.PropertyGroup):
     collision_point:bpy.props.FloatVectorProperty(subtype = 'TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     collision_ob: bpy.props.PointerProperty(type=bpy.types.Object, override={'LIBRARY_OVERRIDABLE'})
     collision_normal: bpy.props.FloatVectorProperty(subtype = 'TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
+    collision_col: bpy.props.PointerProperty(type=bpy.types.Collection,override={'LIBRARY_OVERRIDABLE'})
     
     position_head: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
     position_last_head: bpy.props.FloatVectorProperty(subtype='TRANSLATION', override={'LIBRARY_OVERRIDABLE'})
