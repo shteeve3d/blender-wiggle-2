@@ -6,7 +6,7 @@ bl_info = {
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
     "warning": "",
-    "wiki_url": "",
+    "wiki_url": "https://github.com/shteeve3d/blender-wiggle-2",
     "category": "Animation",
 }
 
