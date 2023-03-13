@@ -566,14 +566,25 @@ class WigglePanel:
 class WIGGLE_PT_Settings(WigglePanel, bpy.types.Panel):
     bl_label = 'Wiggle 2'
     
-    def draw_header(self, context):
-        self.layout.prop(context.scene, "wiggle_enable", text="")
+#    def draw_header(self, context):
+#        self.layout.prop(context.scene, "wiggle_enable", icon="SCENE_DATA", text="")
         
     def draw(self,context):
-        if not context.scene.wiggle_enable: return
-        if not context.object.type == 'ARMATURE': return
         row = self.layout.row(align=True)
+#        row.alignment = 'LEFT'
+        row.prop(context.scene, "wiggle_enable", icon="SCENE_DATA", text="")
+        if not context.scene.wiggle_enable:
+            row.label(text = ' Scene disabled.')
+            return
+        if not context.object.type == 'ARMATURE':
+            row.label(text = ' No active armature.')
+            return
+        row.label(icon='TRIA_RIGHT')
         row.prop(context.object,'wiggle_enable',icon='ARMATURE_DATA',icon_only=True)
+        if not context.object.wiggle_enable:
+            row.label(text = ' Active armature disabled.')
+        elif context.active_pose_bone and not context.active_pose_bone.wiggle_head and not context.active_pose_bone.wiggle_tail:
+            row.label(text = ' Active bone disabled.')
 
 class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
     bl_label = ''
@@ -680,6 +691,7 @@ class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
 class WIGGLE_PT_Utilities(WigglePanel,bpy.types.Panel):
     bl_label = 'Global Wiggle Utilities'
     bl_parent_id = 'WIGGLE_PT_Settings'
+    bl_options = {"DEFAULT_CLOSED"}
     
     @classmethod
     def poll(cls,context):
@@ -700,6 +712,7 @@ class WIGGLE_PT_Utilities(WigglePanel,bpy.types.Panel):
 class WIGGLE_PT_Bake(WigglePanel,bpy.types.Panel):
     bl_label = 'Bake Wiggle'
     bl_parent_id = 'WIGGLE_PT_Utilities'
+    bl_options = {"DEFAULT_CLOSED"}
     
     @classmethod
     def poll(cls,context):
@@ -746,7 +759,7 @@ class WiggleObject(bpy.types.PropertyGroup):
 class WiggleScene(bpy.types.PropertyGroup):
     dt: bpy.props.FloatProperty()
     lastframe: bpy.props.IntProperty()
-    iterations: bpy.props.IntProperty(name='Quality', description='Constraint solver interations for chain physics', min=1, default=1, soft_max=4, max=10)
+    iterations: bpy.props.IntProperty(name='Quality', description='Constraint solver interations for chain physics', min=1, default=1, soft_max=4, max=20)
     loop: bpy.props.BoolProperty(name='Loop Physics', description='Physics continues as timeline loops', default=True)
     list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
     preroll: bpy.props.IntProperty(name = 'Preroll', description='Frames to run simulation before bake', min=0, default=0)
@@ -766,21 +779,21 @@ def register():
         update=lambda s, c: update_prop(s, c, 'wiggle_enable')
     )
     bpy.types.Object.wiggle_enable = bpy.props.BoolProperty(
-        name = 'Armature',
+        name = 'Enable Armature',
         description = 'Enable wiggle on this armature',
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_enable')
     )
     bpy.types.PoseBone.wiggle_head = bpy.props.BoolProperty(
-        name = 'Head',
+        name = 'Bone Head',
         description = "Enable wiggle on this bone's head",
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_head')
     )
     bpy.types.PoseBone.wiggle_tail = bpy.props.BoolProperty(
-        name = 'Tail',
+        name = 'Bone Tail',
         description = "Enable wiggle on this bone's tail",
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
