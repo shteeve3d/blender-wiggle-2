@@ -581,14 +581,17 @@ class WIGGLE_PT_Settings(WigglePanel, bpy.types.Panel):
             row.label(text = ' Scene disabled.')
             return
         if not context.object.type == 'ARMATURE':
-            row.label(text = ' No active armature.')
+            row.label(text = ' Select armature.')
             return
         row.label(icon='TRIA_RIGHT')
         row.prop(context.object,'wiggle_enable',icon='ARMATURE_DATA',icon_only=True)
         if not context.object.wiggle_enable:
-            row.label(text = ' Active armature disabled.')
-        elif context.active_pose_bone and not context.active_pose_bone.wiggle_head and not context.active_pose_bone.wiggle_tail:
-            row.label(text = ' Active bone disabled.')
+            row.label(text = ' Armature disabled.')
+        else:
+            if not context.active_pose_bone:
+                row.label(text = ' Select pose bone.')
+            elif context.active_pose_bone and not context.active_pose_bone.wiggle_head and not context.active_pose_bone.wiggle_tail:
+                row.label(text = ' Bone disabled.')
 
 class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
     bl_label = ''
