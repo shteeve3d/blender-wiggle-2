@@ -42,6 +42,12 @@ def flatten(mat):
     return [mat[j][i] for i in range(dim) 
                       for j in range(dim)]
                       
+def reset_bone(b):
+    b.wiggle.position = b.wiggle.position_last = (b.id_data.matrix_world @ Matrix.Translation(b.tail)).translation
+    b.wiggle.position_head = b.wiggle.position_last_head = (b.id_data.matrix_world @ b.matrix).translation
+    b.wiggle.velocity = b.wiggle.velocity_head = b.wiggle.collision_normal = b.wiggle.collision_normal_head = Vector((0,0,0))
+    b.wiggle.matrix = flatten(b.id_data.matrix_world @ b.matrix)
+                      
 def build_list():
     bpy.context.scene.wiggle.list.clear()
     for ob in bpy.context.scene.objects:
@@ -60,7 +66,8 @@ def update_prop(self,context,prop):
             b[prop] = self[prop]
     if prop in ['wiggle_enable', 'wiggle_head', 'wiggle_tail']:
         build_list()
-#        bpy.ops.wiggle.reset()
+        for b in context.selected_pose_bones:
+            reset_bone(b)
         
 def get_parent(b):
     p = b.parent
@@ -486,11 +493,8 @@ class WiggleReset(bpy.types.Operator):
                 if not b:
                     rebuild = True
                     continue
-                b.wiggle.position = b.wiggle.position_last = (b.id_data.matrix_world @ Matrix.Translation(b.tail)).translation
-                b.wiggle.position_head = b.wiggle.position_last_head = (b.id_data.matrix_world @ b.matrix).translation
-                b.wiggle.velocity = b.wiggle.velocity_head = Vector((0,0,0))
-                b.wiggle.matrix = flatten(b.id_data.matrix_world @ b.matrix)
-                context.scene.wiggle.lastframe = context.scene.frame_current
+                reset_bone(b)
+        context.scene.wiggle.lastframe = context.scene.frame_current
         if rebuild: build_list()
         return {'FINISHED'}
     
@@ -759,7 +763,7 @@ class WiggleObject(bpy.types.PropertyGroup):
 class WiggleScene(bpy.types.PropertyGroup):
     dt: bpy.props.FloatProperty()
     lastframe: bpy.props.IntProperty()
-    iterations: bpy.props.IntProperty(name='Quality', description='Constraint solver interations for chain physics', min=1, default=1, soft_max=4, max=20)
+    iterations: bpy.props.IntProperty(name='Quality', description='Constraint solver interations for chain physics', min=1, default=2, soft_max=8, max=20)
     loop: bpy.props.BoolProperty(name='Loop Physics', description='Physics continues as timeline loops', default=True)
     list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
     preroll: bpy.props.IntProperty(name = 'Preroll', description='Frames to run simulation before bake', min=0, default=0)
@@ -814,7 +818,7 @@ def register():
         name = 'Stiff',
         description = 'Spring stiffness coefficient, can be large numbers',
         min = 0,
-        default = 100,
+        default = 400,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_stiff')
     )
@@ -864,7 +868,7 @@ def register():
         name = 'Stiff',
         description = 'Spring stiffness coefficient, can be large numbers',
         min = 0,
-        default = 100,
+        default = 400,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_stiff')
     )
