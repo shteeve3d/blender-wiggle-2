@@ -814,7 +814,7 @@ def register():
         name = 'Stiff',
         description = 'Spring stiffness coefficient, can be large numbers',
         min = 0,
-        default = 20,
+        default = 100,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_stiff')
     )
@@ -864,7 +864,7 @@ def register():
         name = 'Stiff',
         description = 'Spring stiffness coefficient, can be large numbers',
         min = 0,
-        default = 20,
+        default = 100,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_stiff')
     )
