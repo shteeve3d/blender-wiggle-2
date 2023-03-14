@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 0, 0),
+    "version": (2, 1, 0),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -15,14 +15,6 @@ bl_info = {
 # Basic object wiggle?
 # handle constraints?
 # handle inherit rotation
-# [KINDA?] Implement a constant physics step
-# [DONE] Bounciness improve
-# [DONE] friction improve
-# [DONE] Length stiffness 1 should have no give
-# [DONE] handle indirect parents
-# [DONE] indirect parent chain
-# [DONE] wiggle bone position
-# [DONE] head/tail collision options
 
 # bugs:
 # weird glitch when starting playback?
@@ -230,7 +222,7 @@ def move(b,dg):
             damp = max(min(1-b.wiggle_damp*dt, 1),0) 
             b.wiggle.velocity=b.wiggle.velocity*damp
             Fg = bpy.context.scene.gravity * b.wiggle_gravity
-            Fw = bpy.context.scene.wiggle.wind * b.wiggle_wind
+            Fw = bpy.context.scene.wiggle.wind * b.wiggle_wind / b.wiggle_mass
             b.wiggle.position += b.wiggle.velocity + (Fg + Fw)*dt2
             pin(b)
             collide(b,dg)
@@ -239,7 +231,7 @@ def move(b,dg):
             damp = max(min(1-b.wiggle_damp_head*dt,1),0)
             b.wiggle.velocity_head = b.wiggle.velocity_head*damp
             Fg = bpy.context.scene.gravity * b.wiggle_gravity_head
-            Fw = bpy.context.scene.wiggle.wind * b.wiggle_wind_head
+            Fw = bpy.context.scene.wiggle.wind * b.wiggle_wind_head / b.wiggle_mass_head
             b.wiggle.position_head += b.wiggle.velocity_head + (Fg + Fw)*dt2
             collide(b,dg,True)
         update_matrix(b)
