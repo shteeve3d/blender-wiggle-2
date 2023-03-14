@@ -224,20 +224,23 @@ def pin(b):
 #can include gravity, wind, etc    
 def move(b,dg):
     dt = bpy.context.scene.wiggle.dt
+    dt2 = dt * dt
     if dt:
         if b.wiggle_tail:
             damp = max(min(1-b.wiggle_damp*dt, 1),0) 
             b.wiggle.velocity=b.wiggle.velocity*damp
-            Fg = bpy.context.scene.gravity * b.wiggle_gravity * dt * dt
-            b.wiggle.position += (b.wiggle.velocity + Fg)
+            Fg = bpy.context.scene.gravity * b.wiggle_gravity
+            Fw = bpy.context.scene.wiggle.wind * b.wiggle_wind
+            b.wiggle.position += b.wiggle.velocity + (Fg + Fw)*dt2
             pin(b)
             collide(b,dg)
         
         if b.wiggle_head and not b.bone.use_connect:
             damp = max(min(1-b.wiggle_damp_head*dt,1),0)
             b.wiggle.velocity_head = b.wiggle.velocity_head*damp
-            Fg = bpy.context.scene.gravity * b.wiggle_gravity_head * dt * dt
-            b.wiggle.position_head += (b.wiggle.velocity_head + Fg)
+            Fg = bpy.context.scene.gravity * b.wiggle_gravity_head
+            Fw = bpy.context.scene.wiggle.wind * b.wiggle_wind_head
+            b.wiggle.position_head += b.wiggle.velocity_head + (Fg + Fw)*dt2
             collide(b,dg,True)
         update_matrix(b)
 
@@ -392,6 +395,12 @@ def wiggle_post(scene,dg):
     scene.wiggle.dt = 1/scene.render.fps * frames_elapsed
     scene.wiggle.lastframe = scene.frame_current
     
+    #wind
+    scene.wiggle.wind = Vector((0,0,0))
+    for ob in scene.objects:
+        if ob.field and ob.field.type == 'WIND':
+            scene.wiggle.wind += ob.matrix_world @ Vector((0,0,ob.field.strength))
+    
     for wo in scene.wiggle.list:
         ob = scene.objects[wo.name]
         bones = []
@@ -447,6 +456,7 @@ class WiggleCopy(bpy.types.Operator):
         b.wiggle_stretch = b.wiggle_stretch
         b.wiggle_damp = b.wiggle_damp
         b.wiggle_gravity = b.wiggle_gravity
+        b.wiggle_wind = b.wiggle_wind
         b.wiggle_collider_type = b.wiggle_collider_type
         b.wiggle_collider = b.wiggle_collider
         b.wiggle_collider_collection = b.wiggle_collider_collection
@@ -459,6 +469,7 @@ class WiggleCopy(bpy.types.Operator):
         b.wiggle_stiff_head = b.wiggle_stiff_head
         b.wiggle_damp_head = b.wiggle_damp_head
         b.wiggle_gravity_head = b.wiggle_gravity_head
+        b.wiggle_wind_head = b.wiggle_wind_heead
         b.wiggle_collider_type_head = b.wiggle_collider_type_head
         b.wiggle_collider_head = b.wiggle_collider_head
         b.wiggle_collider_collection_head = b.wiggle_collider_collection_head
@@ -619,7 +630,8 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
         col = layout.column(align=True)
         drawprops(col,b,['wiggle_mass_head','wiggle_stiff_head','wiggle_damp_head'])
         col.separator()
-        col.prop(b,'wiggle_gravity_head')
+#        col.prop(b,'wiggle_gravity_head')
+        drawprops(col,b,['wiggle_gravity_head','wiggle_wind_head'])
         col.separator()
         col.prop(b, 'wiggle_collider_type_head',text='Collisions')
         collision = False
@@ -670,7 +682,8 @@ class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
         col = layout.column(align=True)
         drawprops(col,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp'])
         col.separator()
-        col.prop(b,'wiggle_gravity')
+#        col.prop(b,'wiggle_gravity')
+        drawprops(col,b,['wiggle_gravity','wiggle_wind'])
         col.separator()
         col.prop(b, 'wiggle_collider_type',text='Collisions')
         collision = False
@@ -773,6 +786,7 @@ class WiggleScene(bpy.types.PropertyGroup):
     is_preroll: bpy.props.BoolProperty(default=False)
     bake_overwrite: bpy.props.BoolProperty(name='Overwrite', description='Bake wiggle into current action, instead of creating a new one', default = False)
     is_rendering: bpy.props.BoolProperty(default=False)
+    wind: bpy.props.FloatVectorProperty(subtype='TRANSLATION')
 
 def register():
     
@@ -849,6 +863,13 @@ def register():
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
     )
+    bpy.types.PoseBone.wiggle_wind = bpy.props.FloatProperty(
+        name = 'Wind',
+        description = 'Multiplier for wind forces',
+        default = 1,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_wind')
+    )
     bpy.types.PoseBone.wiggle_chain = bpy.props.BoolProperty(
         name = 'Chain',
         description = 'Bone affects its parent creating a physics chain',
@@ -898,6 +919,13 @@ def register():
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
+    )
+    bpy.types.PoseBone.wiggle_wind_head = bpy.props.FloatProperty(
+        name = 'Wind',
+        description = 'Multiplier for wind forces',
+        default = 1,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_wind_head')
     )
     
     #TAIL COLLISION
