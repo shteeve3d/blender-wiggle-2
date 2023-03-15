@@ -277,7 +277,17 @@ def constrain(b,i,dg):
         #spring
         if b.wiggle_head and not b.bone.use_connect:
             target = mat.translation
-            b.wiggle.position_head += spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
+            s = spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
+            if p and b.wiggle_chain_head:
+                if p.wiggle_tail:
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass)
+                    p.wiggle.position -= s*fac
+                else:
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass_head)
+                    p.wiggle.position_head -= s*fac
+                b.wiggle.position_head += s*(1-fac)
+            else:
+                b.wiggle.position_head += s
 
             mat = Matrix.LocRotScale(b.wiggle.position_head, mat.decompose()[1], b.matrix.decompose()[2])
             target = mat @ Vector((0,b.bone.length,0))
@@ -311,11 +321,34 @@ def constrain(b,i,dg):
                 
         #stretch
         if b.wiggle_head and not b.bone.use_connect:
+            if p:
+                if b.parent == p and p.wiggle_tail:
+                    target = p.wiggle.position + (b.wiggle.position_head - p.wiggle.position).normalized()*(b.id_data.matrix_world @ b.head - b.id_data.matrix_world @ p.tail).length
+                else: #indirect
+                    targetpos = p.wiggle.matrix @ relative_matrix(p.matrix, b.parent.matrix) @ Vector((0,b.parent.length,0))
+                    target = targetpos + (b.wiggle.position_head - targetpos).normalized()*(b.id_data.matrix_world @ b.head - b.id_data.matrix_world @ b.parent.tail).length
+            elif b.parent:
+                ptail = b.id_data.matrix_world @ b.parent.tail
+                target = ptail + (b.wiggle.position_head - ptail).normalized() * (b.id_data.matrix_world @ b.head - b.id_data.matrix_world @ b.parent.tail).length
+            else:
+                target = mat.translation
+            s = stretch(target, b.wiggle.position_head, b.wiggle_stretch_head)
+            if p and b.wiggle_chain_head: #DOES THIS ASSUME ANYTHING?
+                if p.wiggle_tail:
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass) if i else p.wiggle_stretch
+                    p.wiggle.position -= s*fac
+                else:
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass_head) if i else p.wiggle_stretch_head
+                    p.wiggle.position_head -= s*fac
+                b.wiggle.position_head += s*(1-fac)
+            else:
+                b.wiggle.position_head += s
+                
             target = b.wiggle.position_head + (b.wiggle.position - b.wiggle.position_head).normalized()*length_world(b)
             if b.wiggle_tail: #tail stretch only relative to head
                 s = stretch(target, b.wiggle.position, b.wiggle_stretch)
                 if b.wiggle_chain:
-                    fac = get_fac(b.wiggle_mass, b.wiggle_mass_head)
+                    fac = get_fac(b.wiggle_mass, b.wiggle_mass_head) if i else b.wiggle_stretch_head
                     b.wiggle.position_head -= s*fac
                     b.wiggle.position += s*(1-fac)
                 else:
@@ -472,6 +505,7 @@ class WiggleCopy(bpy.types.Operator):
         
         b.wiggle_mass_head = b.wiggle_mass_head
         b.wiggle_stiff_head = b.wiggle_stiff_head
+        b.wiggle_stretch_head = b.wiggle_stretch_head
         b.wiggle_damp_head = b.wiggle_damp_head
         b.wiggle_gravity_head = b.wiggle_gravity_head
         b.wiggle_wind_ob_head = b.wiggle_wind_ob_head
@@ -634,7 +668,7 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
                 layout.prop(b, p)
         
         col = layout.column(align=True)
-        drawprops(col,b,['wiggle_mass_head','wiggle_stiff_head','wiggle_damp_head'])
+        drawprops(col,b,['wiggle_mass_head','wiggle_stiff_head','wiggle_stretch_head','wiggle_damp_head'])
         col.separator()
         col.prop(b,'wiggle_gravity_head')
         row=col.row(align=True)
@@ -665,6 +699,7 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
         if collision:
             col = layout.column(align=True)
             drawprops(col,b,['wiggle_radius_head','wiggle_friction_head','wiggle_bounce_head','wiggle_sticky_head'])
+        layout.prop(b,'wiggle_chain_head')
             
 class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
     bl_label = ''
@@ -907,7 +942,7 @@ def register():
         min = 0.01,
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_mass')
+        update=lambda s, c: update_prop(s, c, 'wiggle_mass_head')
     )
     bpy.types.PoseBone.wiggle_stiff_head = bpy.props.FloatProperty(
         name = 'Stiff',
@@ -915,7 +950,7 @@ def register():
         min = 0,
         default = 400,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_stiff')
+        update=lambda s, c: update_prop(s, c, 'wiggle_stiff_head')
     )
     bpy.types.PoseBone.wiggle_stretch_head = bpy.props.FloatProperty(
         name = 'Stretch',
@@ -924,7 +959,7 @@ def register():
         default = 0,
         max=1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_stretch')
+        update=lambda s, c: update_prop(s, c, 'wiggle_stretch_head')
     )
     bpy.types.PoseBone.wiggle_damp_head = bpy.props.FloatProperty(
         name = 'Damp',
@@ -932,14 +967,14 @@ def register():
         min = 0,
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_damp')
+        update=lambda s, c: update_prop(s, c, 'wiggle_damp_head')
     )
     bpy.types.PoseBone.wiggle_gravity_head = bpy.props.FloatProperty(
         name = 'Gravity',
         description = 'Multiplier for scene gravity',
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
+        update=lambda s, c: update_prop(s, c, 'wiggle_gravity_head')
     )
     bpy.types.PoseBone.wiggle_wind_ob_head = bpy.props.PointerProperty(
         name='Wind', 
@@ -955,6 +990,13 @@ def register():
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_wind_head')
+    )
+    bpy.types.PoseBone.wiggle_chain_head = bpy.props.BoolProperty(
+        name = 'Chain',
+        description = 'Bone affects its parent creating a physics chain',
+        default = True,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_chain_head')
     )
     
     #TAIL COLLISION
