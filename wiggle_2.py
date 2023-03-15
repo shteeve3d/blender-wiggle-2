@@ -154,7 +154,7 @@ def collide(b,dg,head=False):
         b.wiggle.collision_ob = co  
         b.wiggle.collision_normal = cn
 
-def update_matrix(b):
+def update_matrix(b,last=False):
     loc = Matrix.Translation(Vector((0,0,0)))
     p = get_parent(b)
     if p:
@@ -206,8 +206,16 @@ def update_matrix(b):
                 sy = sy*(b.parent.length/b.parent.bone.length)
             
     scale = Matrix.Scale(sy,4,Vector((0,1,0)))
-
-    b.matrix = b.matrix @ loc @ rot @ scale
+    
+    if last:
+        const = False
+        for c in b.constraints:
+            if c.enabled and not (c.type == 'DAMPED_TRACK'):
+                const = True 
+        if const:
+            b.matrix = b.bone.matrix_local @ b.matrix_basis @ loc @ rot @ scale
+        else:
+            b.matrix = b.matrix @ loc @ rot @ scale
     b.wiggle.matrix = flatten(m2 @ rot @ scale)
     
 def pin(b):
@@ -406,6 +414,8 @@ def wiggle_post(scene,dg):
         for i in range(scene.wiggle.iterations):
             for b in bones:
                 constrain(b, scene.wiggle.iterations-1-i,dg)
+        for b in bones:
+            update_matrix(b,True) #final update handling constraints?
         if frames_elapsed:
             for b in bones:
                 vb = Vector((0,0,0))
