@@ -534,6 +534,18 @@ class WiggleBake(bpy.types.Operator):
         return context.object
     
     def execute(self,context):
+        def push_nla():
+            if context.scene.wiggle.bake_overwrite: return
+            if not context.scene.wiggle.bake_nla: return
+            if not context.object.animation_data: return
+            if not context.object.animation_data.action: return
+            action = context.object.animation_data.action
+            track = context.object.animation_data.nla_tracks.new()
+            track.name = action.name
+            track.strips.new(action.name, int(action.frame_range[0]), action)
+            
+        push_nla()
+            
         #preroll
         duration = context.scene.frame_end - context.scene.frame_start + 1
         preroll = context.scene.wiggle.preroll
@@ -548,6 +560,7 @@ class WiggleBake(bpy.types.Operator):
                 context.scene.frame_set(context.scene.frame_start)
             context.scene.wiggle.is_preroll = True
             preroll -= 1
+        #bake
         bpy.ops.nla.bake(frame_start = context.scene.frame_start,
                         frame_end = context.scene.frame_end,
                         only_selected = True,
@@ -556,6 +569,8 @@ class WiggleBake(bpy.types.Operator):
                         bake_types={'POSE'})
         context.scene.wiggle.is_preroll = False
         context.object.wiggle_enable = False
+        if not context.scene.wiggle.bake_overwrite:
+            context.object.animation_data.action.name = 'WiggleAction'
         return {'FINISHED'}  
 
 class WigglePanel:
@@ -731,6 +746,9 @@ class WIGGLE_PT_Bake(WigglePanel,bpy.types.Panel):
         layout.use_property_decorate=False
         layout.prop(context.scene.wiggle, 'preroll')
         layout.prop(context.scene.wiggle, 'bake_overwrite')
+        row = layout.row()
+        row.enabled = not context.scene.wiggle.bake_overwrite
+        row.prop(context.scene.wiggle, 'bake_nla')
         layout.operator('wiggle.bake')
         
 class WiggleBoneItem(bpy.types.PropertyGroup):
@@ -771,7 +789,8 @@ class WiggleScene(bpy.types.PropertyGroup):
     list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
     preroll: bpy.props.IntProperty(name = 'Preroll', description='Frames to run simulation before bake', min=0, default=0)
     is_preroll: bpy.props.BoolProperty(default=False)
-    bake_overwrite: bpy.props.BoolProperty(name='Overwrite', description='Bake wiggle into current action, instead of creating a new one', default = False)
+    bake_overwrite: bpy.props.BoolProperty(name='Overwrite Current Action', description='Bake wiggle into current action, instead of creating a new one', default = False)
+    bake_nla: bpy.props.BoolProperty(name='Current Action to NLA', description='Move existing animation on the armature into an NLA strip', default = False) 
     is_rendering: bpy.props.BoolProperty(default=False)
 
 def register():
