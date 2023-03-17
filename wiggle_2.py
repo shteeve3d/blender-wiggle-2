@@ -13,8 +13,7 @@ bl_info = {
 ### TO DO #####
 
 # Basic object wiggle?
-# handle constraints?
-# handle inherit rotation
+# handle inherit rotation?
 
 # bugs:
 # weird glitch when starting playback?
@@ -333,11 +332,14 @@ def constrain(b,i,dg):
             else:
                 target = mat.translation
             s = stretch(target, b.wiggle.position_head, b.wiggle_stretch_head)
-            if p and b.wiggle_chain_head: #DOES THIS ASSUME ANYTHING?
+            if p and b.wiggle_chain_head:
                 if p.wiggle_tail:
                     fac = get_fac(b.wiggle_mass_head, p.wiggle_mass) if i else p.wiggle_stretch
-                    p.wiggle.position -= s*fac
-                else:
+                    tailpos = p.wiggle.matrix @ relative_matrix(p.matrix, b.parent.matrix) @ Vector((0,b.parent.length,0))
+                    ratio = (p.wiggle.matrix.translation - p.wiggle.position).length/(p.wiggle.matrix.translation - tailpos).length
+                    tailpos -= s*fac
+                    p.wiggle.position -= s*ratio*fac
+                else: #DOES THIS ASSUME ANYTHING? (No, head only translates, no bone stretching)
                     fac = get_fac(b.wiggle_mass_head, p.wiggle_mass_head) if i else p.wiggle_stretch_head
                     p.wiggle.position_head -= s*fac
                 b.wiggle.position_head += s*(1-fac)
@@ -357,15 +359,19 @@ def constrain(b,i,dg):
         else: #tail stretch relative to parent or none
             target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
             s = stretch(target, b.wiggle.position, b.wiggle_stretch)
-            if p and b.wiggle_chain:
-                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
-                if b.bone.use_connect:
-                    p.wiggle.position -= s*fac
-                else:
-                    headpos = mat.translation
-                    ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
-                    headpos -=s*fac
-                    p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
+            if p and b.wiggle_chain: #ASSUMES P IS DIRECT PARENT?
+                if p.wiggle_tail:
+                    fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
+                    if p == b.parent and b.bone.use_connect: #optimization with direct parent tail
+                        p.wiggle.position -= s*fac
+                    else:
+                        headpos = mat.translation
+                        ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
+                        headpos -=s*fac
+                        p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
+                else: #implied p.wiggle_head
+                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
+                    p.wiggle.position_head -= s*fac
                 b.wiggle.position += s*(1-fac)
                 update_p = True
             else:
