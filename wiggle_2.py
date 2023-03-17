@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 0, 0),
+    "version": (2, 1, 0),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -13,16 +13,7 @@ bl_info = {
 ### TO DO #####
 
 # Basic object wiggle?
-# handle constraints?
-# handle inherit rotation
-# [KINDA?] Implement a constant physics step
-# [DONE] Bounciness improve
-# [DONE] friction improve
-# [DONE] Length stiffness 1 should have no give
-# [DONE] handle indirect parents
-# [DONE] indirect parent chain
-# [DONE] wiggle bone position
-# [DONE] head/tail collision options
+# handle inherit rotation?
 
 # bugs:
 # weird glitch when starting playback?
@@ -80,6 +71,9 @@ def length_world(b):
 
 def collider_poll(self, object):
     return object.type == 'MESH'
+
+def wind_poll(self, object):
+    return object.field and object.field.type =='WIND'
 
 def collide(b,dg,head=False):
     dt = bpy.context.scene.wiggle.dt
@@ -159,7 +153,7 @@ def collide(b,dg,head=False):
         b.wiggle.collision_ob = co  
         b.wiggle.collision_normal = cn
 
-def update_matrix(b):
+def update_matrix(b,last=False):
     loc = Matrix.Translation(Vector((0,0,0)))
     p = get_parent(b)
     if p:
@@ -211,8 +205,16 @@ def update_matrix(b):
                 sy = sy*(b.parent.length/b.parent.bone.length)
             
     scale = Matrix.Scale(sy,4,Vector((0,1,0)))
-
-    b.matrix = b.matrix @ loc @ rot @ scale
+    
+    if last:
+        const = False
+        for c in b.constraints:
+            if c.enabled and not (c.type == 'DAMPED_TRACK'):
+                const = True 
+        if const:
+            b.matrix = b.bone.matrix_local @ b.matrix_basis @ loc @ rot @ scale
+        else:
+            b.matrix = b.matrix @ loc @ rot @ scale
     b.wiggle.matrix = flatten(m2 @ rot @ scale)
     
 def pin(b):
@@ -224,20 +226,28 @@ def pin(b):
 #can include gravity, wind, etc    
 def move(b,dg):
     dt = bpy.context.scene.wiggle.dt
+    dt2 = dt * dt
     if dt:
         if b.wiggle_tail:
             damp = max(min(1-b.wiggle_damp*dt, 1),0) 
             b.wiggle.velocity=b.wiggle.velocity*damp
-            Fg = bpy.context.scene.gravity * b.wiggle_gravity * dt * dt
-            b.wiggle.position += (b.wiggle.velocity + Fg)
+            F = bpy.context.scene.gravity * b.wiggle_gravity
+            if b.wiggle_wind_ob:
+                dir = b.wiggle_wind_ob.matrix_world.to_quaternion().to_matrix().to_4x4() @ Vector((0,0,1))
+                fac = 1 - b.wiggle_wind_ob.field.wind_factor * abs(dir.dot((b.wiggle.position - b.wiggle.matrix.translation).normalized()))
+                F += dir * fac * b.wiggle_wind_ob.field.strength * b.wiggle_wind / b.wiggle_mass
+            b.wiggle.position += b.wiggle.velocity + F*dt2
             pin(b)
             collide(b,dg)
         
         if b.wiggle_head and not b.bone.use_connect:
             damp = max(min(1-b.wiggle_damp_head*dt,1),0)
             b.wiggle.velocity_head = b.wiggle.velocity_head*damp
-            Fg = bpy.context.scene.gravity * b.wiggle_gravity_head * dt * dt
-            b.wiggle.position_head += (b.wiggle.velocity_head + Fg)
+            F = bpy.context.scene.gravity * b.wiggle_gravity_head
+            if b.wiggle_wind_ob_head:
+                dir = b.wiggle_wind_ob_head.matrix_world.to_quaternion().to_matrix().to_4x4() @ Vector((0,0,1))
+                F += dir * b.wiggle_wind_ob_head.field.strength * b.wiggle_wind_head / b.wiggle_mass_head
+            b.wiggle.position_head += b.wiggle.velocity_head + F*dt2
             collide(b,dg,True)
         update_matrix(b)
 
@@ -266,7 +276,17 @@ def constrain(b,i,dg):
         #spring
         if b.wiggle_head and not b.bone.use_connect:
             target = mat.translation
-            b.wiggle.position_head += spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
+            s = spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
+            if p and b.wiggle_chain_head:
+                if p.wiggle_tail:
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass)
+                    p.wiggle.position -= s*fac
+                else:
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass_head)
+                    p.wiggle.position_head -= s*fac
+                b.wiggle.position_head += s*(1-fac)
+            else:
+                b.wiggle.position_head += s
 
             mat = Matrix.LocRotScale(b.wiggle.position_head, mat.decompose()[1], b.matrix.decompose()[2])
             target = mat @ Vector((0,b.bone.length,0))
@@ -300,11 +320,37 @@ def constrain(b,i,dg):
                 
         #stretch
         if b.wiggle_head and not b.bone.use_connect:
+            if p:
+                if b.parent == p and p.wiggle_tail:
+                    target = p.wiggle.position + (b.wiggle.position_head - p.wiggle.position).normalized()*(b.id_data.matrix_world @ b.head - b.id_data.matrix_world @ p.tail).length
+                else: #indirect
+                    targetpos = p.wiggle.matrix @ relative_matrix(p.matrix, b.parent.matrix) @ Vector((0,b.parent.length,0))
+                    target = targetpos + (b.wiggle.position_head - targetpos).normalized()*(b.id_data.matrix_world @ b.head - b.id_data.matrix_world @ b.parent.tail).length
+            elif b.parent:
+                ptail = b.id_data.matrix_world @ b.parent.tail
+                target = ptail + (b.wiggle.position_head - ptail).normalized() * (b.id_data.matrix_world @ b.head - b.id_data.matrix_world @ b.parent.tail).length
+            else:
+                target = mat.translation
+            s = stretch(target, b.wiggle.position_head, b.wiggle_stretch_head)
+            if p and b.wiggle_chain_head:
+                if p.wiggle_tail:
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass) if i else p.wiggle_stretch
+                    tailpos = p.wiggle.matrix @ relative_matrix(p.matrix, b.parent.matrix) @ Vector((0,b.parent.length,0))
+                    ratio = (p.wiggle.matrix.translation - p.wiggle.position).length/(p.wiggle.matrix.translation - tailpos).length
+                    tailpos -= s*fac
+                    p.wiggle.position -= s*ratio*fac
+                else: #DOES THIS ASSUME ANYTHING? (No, head only translates, no bone stretching)
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass_head) if i else p.wiggle_stretch_head
+                    p.wiggle.position_head -= s*fac
+                b.wiggle.position_head += s*(1-fac)
+            else:
+                b.wiggle.position_head += s
+                
             target = b.wiggle.position_head + (b.wiggle.position - b.wiggle.position_head).normalized()*length_world(b)
             if b.wiggle_tail: #tail stretch only relative to head
                 s = stretch(target, b.wiggle.position, b.wiggle_stretch)
                 if b.wiggle_chain:
-                    fac = get_fac(b.wiggle_mass, b.wiggle_mass_head)
+                    fac = get_fac(b.wiggle_mass, b.wiggle_mass_head) if i else b.wiggle_stretch_head
                     b.wiggle.position_head -= s*fac
                     b.wiggle.position += s*(1-fac)
                 else:
@@ -313,15 +359,19 @@ def constrain(b,i,dg):
         else: #tail stretch relative to parent or none
             target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
             s = stretch(target, b.wiggle.position, b.wiggle_stretch)
-            if p and b.wiggle_chain:
-                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
-                if b.bone.use_connect:
-                    p.wiggle.position -= s*fac
-                else:
-                    headpos = mat.translation
-                    ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
-                    headpos -=s*fac
-                    p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
+            if p and b.wiggle_chain: #ASSUMES P IS DIRECT PARENT?
+                if p.wiggle_tail:
+                    fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
+                    if p == b.parent and b.bone.use_connect: #optimization with direct parent tail
+                        p.wiggle.position -= s*fac
+                    else:
+                        headpos = mat.translation
+                        ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
+                        headpos -=s*fac
+                        p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
+                else: #implied p.wiggle_head
+                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
+                    p.wiggle.position_head -= s*fac
                 b.wiggle.position += s*(1-fac)
                 update_p = True
             else:
@@ -391,7 +441,7 @@ def wiggle_post(scene,dg):
     if scene.wiggle.is_preroll: frames_elapsed = 1
     scene.wiggle.dt = 1/scene.render.fps * frames_elapsed
     scene.wiggle.lastframe = scene.frame_current
-    
+
     for wo in scene.wiggle.list:
         ob = scene.objects[wo.name]
         bones = []
@@ -403,6 +453,8 @@ def wiggle_post(scene,dg):
         for i in range(scene.wiggle.iterations):
             for b in bones:
                 constrain(b, scene.wiggle.iterations-1-i,dg)
+        for b in bones:
+            update_matrix(b,True) #final update handling constraints?
         if frames_elapsed:
             for b in bones:
                 vb = Vector((0,0,0))
@@ -447,6 +499,8 @@ class WiggleCopy(bpy.types.Operator):
         b.wiggle_stretch = b.wiggle_stretch
         b.wiggle_damp = b.wiggle_damp
         b.wiggle_gravity = b.wiggle_gravity
+        b.wiggle_wind_ob = b.wiggle_wind_ob
+        b.wiggle_wind = b.wiggle_wind
         b.wiggle_collider_type = b.wiggle_collider_type
         b.wiggle_collider = b.wiggle_collider
         b.wiggle_collider_collection = b.wiggle_collider_collection
@@ -457,8 +511,11 @@ class WiggleCopy(bpy.types.Operator):
         
         b.wiggle_mass_head = b.wiggle_mass_head
         b.wiggle_stiff_head = b.wiggle_stiff_head
+        b.wiggle_stretch_head = b.wiggle_stretch_head
         b.wiggle_damp_head = b.wiggle_damp_head
         b.wiggle_gravity_head = b.wiggle_gravity_head
+        b.wiggle_wind_ob_head = b.wiggle_wind_ob_head
+        b.wiggle_wind_head = b.wiggle_wind_head
         b.wiggle_collider_type_head = b.wiggle_collider_type_head
         b.wiggle_collider_head = b.wiggle_collider_head
         b.wiggle_collider_collection_head = b.wiggle_collider_collection_head
@@ -632,9 +689,14 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
                 layout.prop(b, p)
         
         col = layout.column(align=True)
-        drawprops(col,b,['wiggle_mass_head','wiggle_stiff_head','wiggle_damp_head'])
+        drawprops(col,b,['wiggle_mass_head','wiggle_stiff_head','wiggle_stretch_head','wiggle_damp_head'])
         col.separator()
         col.prop(b,'wiggle_gravity_head')
+        row=col.row(align=True)
+        row.prop(b,'wiggle_wind_ob_head')
+        sub = row.row(align=True)
+        sub.ui_units_x = 5
+        sub.prop(b, 'wiggle_wind_head', text='')
         col.separator()
         col.prop(b, 'wiggle_collider_type_head',text='Collisions')
         collision = False
@@ -658,6 +720,7 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
         if collision:
             col = layout.column(align=True)
             drawprops(col,b,['wiggle_radius_head','wiggle_friction_head','wiggle_bounce_head','wiggle_sticky_head'])
+        layout.prop(b,'wiggle_chain_head')
             
 class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
     bl_label = ''
@@ -686,6 +749,11 @@ class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
         drawprops(col,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp'])
         col.separator()
         col.prop(b,'wiggle_gravity')
+        row=col.row(align=True)
+        row.prop(b,'wiggle_wind_ob')
+        sub = row.row(align=True)
+        sub.ui_units_x = 5
+        sub.prop(b, 'wiggle_wind', text='')
         col.separator()
         col.prop(b, 'wiggle_collider_type',text='Collisions')
         collision = False
@@ -868,6 +936,21 @@ def register():
         override={'LIBRARY_OVERRIDABLE'},
         update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
     )
+    bpy.types.PoseBone.wiggle_wind_ob = bpy.props.PointerProperty(
+        name='Wind', 
+        description='Wind force field object', 
+        type=bpy.types.Object, 
+        poll = wind_poll, 
+        override={'LIBRARY_OVERRIDABLE'}, 
+        update=lambda s, c: update_prop(s, c, 'wiggle_wind_ob')
+    )
+    bpy.types.PoseBone.wiggle_wind = bpy.props.FloatProperty(
+        name = 'Wind Multiplier',
+        description = 'Multiplier for wind forces',
+        default = 1,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_wind')
+    )
     bpy.types.PoseBone.wiggle_chain = bpy.props.BoolProperty(
         name = 'Chain',
         description = 'Bone affects its parent creating a physics chain',
@@ -884,7 +967,7 @@ def register():
         min = 0.01,
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_mass')
+        update=lambda s, c: update_prop(s, c, 'wiggle_mass_head')
     )
     bpy.types.PoseBone.wiggle_stiff_head = bpy.props.FloatProperty(
         name = 'Stiff',
@@ -892,7 +975,7 @@ def register():
         min = 0,
         default = 400,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_stiff')
+        update=lambda s, c: update_prop(s, c, 'wiggle_stiff_head')
     )
     bpy.types.PoseBone.wiggle_stretch_head = bpy.props.FloatProperty(
         name = 'Stretch',
@@ -901,7 +984,7 @@ def register():
         default = 0,
         max=1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_stretch')
+        update=lambda s, c: update_prop(s, c, 'wiggle_stretch_head')
     )
     bpy.types.PoseBone.wiggle_damp_head = bpy.props.FloatProperty(
         name = 'Damp',
@@ -909,14 +992,36 @@ def register():
         min = 0,
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_damp')
+        update=lambda s, c: update_prop(s, c, 'wiggle_damp_head')
     )
     bpy.types.PoseBone.wiggle_gravity_head = bpy.props.FloatProperty(
         name = 'Gravity',
         description = 'Multiplier for scene gravity',
         default = 1,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_gravity')
+        update=lambda s, c: update_prop(s, c, 'wiggle_gravity_head')
+    )
+    bpy.types.PoseBone.wiggle_wind_ob_head = bpy.props.PointerProperty(
+        name='Wind', 
+        description='Wind force field object', 
+        type=bpy.types.Object, 
+        poll = wind_poll, 
+        override={'LIBRARY_OVERRIDABLE'}, 
+        update=lambda s, c: update_prop(s, c, 'wiggle_wind_ob_head')
+    )
+    bpy.types.PoseBone.wiggle_wind_head = bpy.props.FloatProperty(
+        name = 'Wind',
+        description = 'Multiplier for wind forces',
+        default = 1,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_wind_head')
+    )
+    bpy.types.PoseBone.wiggle_chain_head = bpy.props.BoolProperty(
+        name = 'Chain',
+        description = 'Bone affects its parent creating a physics chain',
+        default = True,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_chain_head')
     )
     
     #TAIL COLLISION
