@@ -562,6 +562,7 @@ class WiggleCopy(bpy.types.Operator):
         b.wiggle_friction = b.wiggle_friction
         b.wiggle_bounce = b.wiggle_bounce
         b.wiggle_sticky = b.wiggle_sticky
+        b.wiggle_chain = b.wiggle_chain
         
         b.wiggle_mass_head = b.wiggle_mass_head
         b.wiggle_stiff_head = b.wiggle_stiff_head
@@ -577,6 +578,7 @@ class WiggleCopy(bpy.types.Operator):
         b.wiggle_friction_head = b.wiggle_friction_head
         b.wiggle_bounce_head = b.wiggle_bounce_head
         b.wiggle_sticky_head = b.wiggle_sticky_head
+        b.wiggle_chain_head = b.wiggle_chain_head
         return {'FINISHED'}
 
 class WiggleReset(bpy.types.Operator):
@@ -656,9 +658,11 @@ class WiggleBake(bpy.types.Operator):
             track.strips.new(action.name, int(action.frame_range[0]), action)
             
         push_nla()
+        
+        bpy.ops.wiggle.reset(
             
         #preroll
-        duration = context.scene.frame_end - context.scene.frame_start + 1
+        duration = context.scene.frame_end - context.scene.frame_start
         preroll = context.scene.wiggle.preroll
         context.scene.wiggle.is_preroll = False
         bpy.ops.wiggle.select()
@@ -679,7 +683,7 @@ class WiggleBake(bpy.types.Operator):
                         use_current_action = context.scene.wiggle.bake_overwrite,
                         bake_types={'POSE'})
         context.scene.wiggle.is_preroll = False
-        context.object.wiggle_enable = False
+        context.object.wiggle_mute = True
         if not context.scene.wiggle.bake_overwrite:
             context.object.animation_data.action.name = 'WiggleAction'
         return {'FINISHED'}  
