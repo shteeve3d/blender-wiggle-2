@@ -659,7 +659,7 @@ class WiggleBake(bpy.types.Operator):
             
         push_nla()
         
-        bpy.ops.wiggle.reset(
+        bpy.ops.wiggle.reset()
             
         #preroll
         duration = context.scene.frame_end - context.scene.frame_start
