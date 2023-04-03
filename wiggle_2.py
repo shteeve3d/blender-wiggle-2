@@ -22,8 +22,6 @@ import bpy, math
 from mathutils import Vector, Matrix, Euler, Quaternion, geometry
 from bpy.app.handlers import persistent
 
-reset = False
-
 #return m2 in m1 space
 def relative_matrix(m1,m2):
     return (m2.inverted() @ m1).inverted()
@@ -432,17 +430,25 @@ def constrain(b,i,dg):
         
 @persistent
 def wiggle_pre(scene):
-    if not scene.wiggle_enable: return
+    if not scene.wiggle_enable:
+        reset_scene()
+        return
     for wo in scene.wiggle.list:
         if wo.name not in scene.objects:
             build_list()
             return
         ob = scene.objects[wo.name]
+        if ob.wiggle_mute:
+            reset_ob(ob)
+            continue
         for wb in wo.list:
             if wb.name not in ob.pose.bones:
                 build_list()
                 return
             b = ob.pose.bones[wb.name]
+            if b.wiggle_mute or not (b.wiggle_head or b.wiggle_tail):
+                reset_bone(b)
+                continue
             if not b.wiggle.collision_col:
                 if b.wiggle_collider_collection:
                     b.wiggle_collider_collection = bpy.data.collections.get(b.wiggle_collider_collection.name)
@@ -461,14 +467,13 @@ def wiggle_pre(scene):
             b.rotation_quaternion = Quaternion((1,0,0,0))
             b.rotation_euler = Vector((0,0,0))
             b.scale = Vector((1,1,1))
-            if ob.wiggle_mute or b.wiggle_mute or not (b.wiggle_head or b.wiggle_tail):
-                reset_bone(b)
+#            if ob.wiggle_mute or b.wiggle_mute or not (b.wiggle_head or b.wiggle_tail):
+#                reset_bone(b)
     bpy.context.view_layer.update()
 
 @persistent                
 def wiggle_post(scene,dg):
-    global reset
-    if reset: return
+    if scene.wiggle.reset: return
     if not scene.wiggle_enable: return
     if scene.wiggle.is_rendering: return
 
@@ -591,10 +596,9 @@ class WiggleReset(bpy.types.Operator):
         return context.scene.wiggle_enable and context.mode in ['OBJECT', 'POSE']
     
     def execute(self,context):
-        global reset
-        reset = True
+        context.scene.wiggle.reset = True
         context.scene.frame_set(context.scene.frame_current)
-        reset = False
+        context.scene.wiggle.reset = False
         rebuild = False
         for wo in context.scene.wiggle.list:
             ob = context.scene.objects.get(wo.name)
@@ -933,6 +937,7 @@ class WiggleScene(bpy.types.PropertyGroup):
     bake_overwrite: bpy.props.BoolProperty(name='Overwrite Current Action', description='Bake wiggle into current action, instead of creating a new one', default = False)
     bake_nla: bpy.props.BoolProperty(name='Current Action to NLA', description='Move existing animation on the armature into an NLA strip', default = False) 
     is_rendering: bpy.props.BoolProperty(default=False)
+    reset: bpy.props.BoolProperty(default=False)
 
 def register():
     
