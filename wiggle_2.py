@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 2, 0),
+    "version": (2, 2, 1),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -236,7 +236,10 @@ def update_matrix(b,last=False):
 def pin(b):
     for c in b.constraints:
         if c.type == 'DAMPED_TRACK' and c.target and not c.mute:
-            b.wiggle.position = b.wiggle.position*(1-c.influence) + c.target.location*c.influence
+            goal = c.target.matrix_world
+            if c.subtarget:
+                goal = goal @ c.target.pose.bones[c.subtarget].matrix
+            b.wiggle.position = b.wiggle.position*(1-c.influence) + goal.translation*c.influence
             break
 
 #can include gravity, wind, etc    
