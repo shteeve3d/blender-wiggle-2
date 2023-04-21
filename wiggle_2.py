@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 1, 0),
+    "version": (2, 2, 0),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -22,8 +22,6 @@ import bpy, math
 from mathutils import Vector, Matrix, Euler, Quaternion, geometry
 from bpy.app.handlers import persistent
 
-reset = False
-
 #return m2 in m1 space
 def relative_matrix(m1,m2):
     return (m2.inverted() @ m1).inverted()
@@ -32,7 +30,16 @@ def flatten(mat):
     dim = len(mat)
     return [mat[j][i] for i in range(dim) 
                       for j in range(dim)]
-                      
+
+def reset_scene():
+    for wo in bpy.context.scene.wiggle.list:
+        reset_ob(bpy.data.objects.get(wo.name))
+                              
+def reset_ob(ob):
+    wo = bpy.context.scene.wiggle.list.get(ob.name)
+    for wb in wo.list:
+        reset_bone(bpy.data.objects.get(wo.name).pose.bones.get(wb.name))
+
 def reset_bone(b):
     b.wiggle.position = b.wiggle.position_last = (b.id_data.matrix_world @ Matrix.Translation(b.tail)).translation
     b.wiggle.position_head = b.wiggle.position_last_head = (b.id_data.matrix_world @ b.matrix).translation
@@ -43,27 +50,39 @@ def build_list():
     bpy.context.scene.wiggle.list.clear()
     for ob in bpy.context.scene.objects:
         if ob.type != 'ARMATURE': continue
-        if not ob.wiggle_enable: continue
+        wigglebones = []
+        for b in ob.pose.bones:
+            if not (b.wiggle_head or b.wiggle_tail):
+                b.wiggle_enable = False
+                continue
+            b.wiggle_enable = True
+            wigglebones.append(b)
+                
+        if not wigglebones:
+            ob.wiggle_enable = False
+            continue
+        
+        ob.wiggle_enable = True
         wo = bpy.context.scene.wiggle.list.add()
         wo.name = ob.name
-        for b in ob.pose.bones:
-            if b.wiggle_head or b.wiggle_tail:
-                wb = wo.list.add()
-                wb.name = b.name
+        for b in wigglebones:
+            wb = wo.list.add()
+            wb.name = b.name
+
         
 def update_prop(self,context,prop): 
     if type(self) == bpy.types.PoseBone: 
         for b in context.selected_pose_bones:
             b[prop] = self[prop]
-    if prop in ['wiggle_enable', 'wiggle_head', 'wiggle_tail']:
-        build_list()
-        for b in context.selected_pose_bones:
-            reset_bone(b)
+        if prop in ['wiggle_head', 'wiggle_tail']:
+            build_list()
+            for b in context.selected_pose_bones:
+                reset_bone(b)
         
 def get_parent(b):
     p = b.parent
     if not p: return None
-    par = p if ((p.wiggle_head and not p.bone.use_connect) or p.wiggle_tail) else get_parent(p)
+    par = p if (p.wiggle_enable and (not p.wiggle_mute) and ((p.wiggle_head and not p.bone.use_connect) or p.wiggle_tail)) else get_parent(p)
     return par
 
 def length_world(b):
@@ -179,9 +198,6 @@ def update_matrix(b,last=False):
     rxz = vec.to_track_quat('Y','Z')
     rot = rxz.to_matrix().to_4x4()
     
-#    if b.wiggle_head:
-#        bpy.context.scene.cursor.location = b.wiggle.position
-    
     if b.bone.inherit_scale == 'FULL':
         l0 = b.bone.length
         l1=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
@@ -267,12 +283,14 @@ def constrain(b,i,dg):
         return s*(1-fac)
 
     if dt:
+        
         p=get_parent(b)
         if p:
             mat = p.wiggle.matrix @ relative_matrix(p.matrix, b.matrix)
         else:
             mat = b.id_data.matrix_world @ b.matrix
         update_p = False  
+        
         #spring
         if b.wiggle_head and not b.bone.use_connect:
             target = mat.translation
@@ -304,15 +322,24 @@ def constrain(b,i,dg):
             mat = Matrix.LocRotScale(mat.decompose()[0], mat.decompose()[1],b.matrix.decompose()[2])
             target = mat @ Vector((0, b.bone.length,0))
             s = spring(target, b.wiggle.position, b.wiggle_stiff)
-            if p and b.wiggle_chain: # and b.bone.use_connect:
+            if p and b.wiggle_chain and p.wiggle_tail: # and b.bone.use_connect:
                 fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
-                if b.bone.use_connect:
+                if p == b.parent and b.bone.use_connect: #direct parent optimization
                     p.wiggle.position -= s*fac
                 else:
                     headpos = mat.translation
-                    ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
-                    headpos -=s*fac
-                    p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
+                    
+                    v1 = headpos-p.wiggle.matrix.translation
+                    headpos -= s*fac
+                    v2 = headpos-p.wiggle.matrix.translation
+                    sc = v2.length/v1.length
+                    q = v1.rotation_difference(v2)
+                    v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
+                    p.wiggle.position = p.wiggle.matrix.translation + v3*sc
+#                else: #implied wiggle head
+#                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
+#                    p.wiggle.position_head -= s*fac
+                    
                 b.wiggle.position += s*(1-fac)
                 update_p = True
             else:
@@ -359,19 +386,25 @@ def constrain(b,i,dg):
         else: #tail stretch relative to parent or none
             target = mat.translation + (b.wiggle.position - mat.translation).normalized()*length_world(b)
             s = stretch(target, b.wiggle.position, b.wiggle_stretch)
-            if p and b.wiggle_chain: #ASSUMES P IS DIRECT PARENT?
-                if p.wiggle_tail:
-                    fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
-                    if p == b.parent and b.bone.use_connect: #optimization with direct parent tail
-                        p.wiggle.position -= s*fac
-                    else:
-                        headpos = mat.translation
-                        ratio = (p.wiggle.position - p.wiggle.matrix.translation).length/(headpos - p.wiggle.matrix.translation).length
-                        headpos -=s*fac
-                        p.wiggle.position = p.wiggle.matrix.translation + (headpos-p.wiggle.matrix.translation)*ratio
-                else: #implied p.wiggle_head
-                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
-                    p.wiggle.position_head -= s*fac
+            if p and b.wiggle_chain and p.wiggle_tail: #ASSUMES P IS DIRECT PARENT?
+#                if p.wiggle_tail:
+                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
+                if p == b.parent and b.bone.use_connect: #optimization with direct parent tail
+                    p.wiggle.position -= s*fac
+                else:
+                    headpos = mat.translation
+                    
+                    v1 = headpos-p.wiggle.matrix.translation
+                    headpos -= s*fac
+                    v2 = headpos-p.wiggle.matrix.translation
+                    sc = v2.length/v1.length
+                    q = v1.rotation_difference(v2)
+                    v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
+                    p.wiggle.position = p.wiggle.matrix.translation + v3*sc
+
+#                else: #implied p.wiggle_head
+#                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
+#                    p.wiggle.position_head -= s*fac
                 b.wiggle.position += s*(1-fac)
                 update_p = True
             else:
@@ -390,17 +423,25 @@ def constrain(b,i,dg):
         
 @persistent
 def wiggle_pre(scene):
-    if not scene.wiggle_enable: return
+    if not scene.wiggle_enable:
+        reset_scene()
+        return
     for wo in scene.wiggle.list:
         if wo.name not in scene.objects:
             build_list()
             return
         ob = scene.objects[wo.name]
+        if ob.wiggle_mute or ob.wiggle_freeze:
+            reset_ob(ob)
+            continue
         for wb in wo.list:
             if wb.name not in ob.pose.bones:
                 build_list()
                 return
             b = ob.pose.bones[wb.name]
+            if b.wiggle_mute or not (b.wiggle_head or b.wiggle_tail):
+                reset_bone(b)
+                continue
             if not b.wiggle.collision_col:
                 if b.wiggle_collider_collection:
                     b.wiggle_collider_collection = bpy.data.collections.get(b.wiggle_collider_collection.name)
@@ -422,8 +463,7 @@ def wiggle_pre(scene):
 
 @persistent                
 def wiggle_post(scene,dg):
-    global reset
-    if reset: return
+    if scene.wiggle.reset: return
     if not scene.wiggle_enable: return
     if scene.wiggle.is_rendering: return
 
@@ -444,8 +484,13 @@ def wiggle_post(scene,dg):
 
     for wo in scene.wiggle.list:
         ob = scene.objects[wo.name]
+        if ob.wiggle_mute or ob.wiggle_freeze: continue
         bones = []
         for wb in wo.list:
+            b = ob.pose.bones[wb.name]
+            if b.wiggle_mute or not (b.wiggle_head or b.wiggle_tail):
+#                reset_bone(b)
+                continue
             bones.append(ob.pose.bones[wb.name])
         for b in bones:
             b.wiggle.collision_normal = b.wiggle.collision_normal_head = Vector((0,0,0))
@@ -491,8 +536,12 @@ class WiggleCopy(bpy.types.Operator):
     
     def execute(self,context):
         b = context.active_pose_bone
+        b.wiggle_enable = b.wiggle_enable
+        b.wiggle_mute = b.wiggle_mute
         b.wiggle_head = b.wiggle_head
         b.wiggle_tail = b.wiggle_tail
+        b.wiggle_head_mute = b.wiggle_head_mute
+        b.wiggle_tail_mute = b.wiggle_tail_mute
         
         b.wiggle_mass = b.wiggle_mass
         b.wiggle_stiff = b.wiggle_stiff
@@ -508,6 +557,7 @@ class WiggleCopy(bpy.types.Operator):
         b.wiggle_friction = b.wiggle_friction
         b.wiggle_bounce = b.wiggle_bounce
         b.wiggle_sticky = b.wiggle_sticky
+        b.wiggle_chain = b.wiggle_chain
         
         b.wiggle_mass_head = b.wiggle_mass_head
         b.wiggle_stiff_head = b.wiggle_stiff_head
@@ -523,6 +573,7 @@ class WiggleCopy(bpy.types.Operator):
         b.wiggle_friction_head = b.wiggle_friction_head
         b.wiggle_bounce_head = b.wiggle_bounce_head
         b.wiggle_sticky_head = b.wiggle_sticky_head
+        b.wiggle_chain_head = b.wiggle_chain_head
         return {'FINISHED'}
 
 class WiggleReset(bpy.types.Operator):
@@ -535,10 +586,9 @@ class WiggleReset(bpy.types.Operator):
         return context.scene.wiggle_enable and context.mode in ['OBJECT', 'POSE']
     
     def execute(self,context):
-        global reset
-        reset = True
+        context.scene.wiggle.reset = True
         context.scene.frame_set(context.scene.frame_current)
-        reset = False
+        context.scene.wiggle.reset = False
         rebuild = False
         for wo in context.scene.wiggle.list:
             ob = context.scene.objects.get(wo.name)
@@ -602,9 +652,11 @@ class WiggleBake(bpy.types.Operator):
             track.strips.new(action.name, int(action.frame_range[0]), action)
             
         push_nla()
+        
+        bpy.ops.wiggle.reset()
             
         #preroll
-        duration = context.scene.frame_end - context.scene.frame_start + 1
+        duration = context.scene.frame_end - context.scene.frame_start
         preroll = context.scene.wiggle.preroll
         context.scene.wiggle.is_preroll = False
         bpy.ops.wiggle.select()
@@ -625,7 +677,7 @@ class WiggleBake(bpy.types.Operator):
                         use_current_action = context.scene.wiggle.bake_overwrite,
                         bake_types={'POSE'})
         context.scene.wiggle.is_preroll = False
-        context.object.wiggle_enable = False
+        context.object.wiggle_freeze = True
         if not context.scene.wiggle.bake_overwrite:
             context.object.animation_data.action.name = 'WiggleAction'
         return {'FINISHED'}  
@@ -641,40 +693,50 @@ class WigglePanel:
 
 class WIGGLE_PT_Settings(WigglePanel, bpy.types.Panel):
     bl_label = 'Wiggle 2'
-    
-#    def draw_header(self, context):
-#        self.layout.prop(context.scene, "wiggle_enable", icon="SCENE_DATA", text="")
         
     def draw(self,context):
-        row = self.layout.row(align=True)
-#        row.alignment = 'LEFT'
-        row.prop(context.scene, "wiggle_enable", icon="SCENE_DATA", text="")
+        row = self.layout.row()
+        icon = 'HIDE_ON' if not context.scene.wiggle_enable else 'SCENE_DATA'
+        row.prop(context.scene, "wiggle_enable", icon=icon, text="",emboss=False)
         if not context.scene.wiggle_enable:
-            row.label(text = ' Scene disabled.')
+            row.label(text='Scene muted.')
             return
         if not context.object.type == 'ARMATURE':
             row.label(text = ' Select armature.')
             return
-        row.label(icon='TRIA_RIGHT')
-        row.prop(context.object,'wiggle_enable',icon='ARMATURE_DATA',icon_only=True)
-        if not context.object.wiggle_enable:
-            row.label(text = ' Armature disabled.')
-        else:
-            if not context.active_pose_bone:
-                row.label(text = ' Select pose bone.')
-            elif context.active_pose_bone and not context.active_pose_bone.wiggle_head and not context.active_pose_bone.wiggle_tail:
-                row.label(text = ' Bone disabled.')
+#        row.label(icon='TRIA_RIGHT')
+        if context.object.wiggle_freeze:
+            row.prop(context.object,'wiggle_freeze',icon='FREEZE',icon_only=True,emboss=False)
+            row.label(text = 'Wiggle Frozen after Bake.')
+            return
+        icon = 'HIDE_ON' if context.object.wiggle_mute else 'ARMATURE_DATA'
+        row.prop(context.object,'wiggle_mute',icon=icon,icon_only=True,invert_checkbox=True,emboss=False)
+        if context.object.wiggle_mute:
+            row.label(text='Armature muted.')
+            return
+        if not context.active_pose_bone:
+            row.label(text = ' Select pose bone.')
+            return
+#        row.label(icon='TRIA_RIGHT')
+        icon = 'HIDE_ON' if context.active_pose_bone.wiggle_mute else 'BONE_DATA'
+        row.prop(context.active_pose_bone,'wiggle_mute',icon=icon,icon_only=True,invert_checkbox=True,emboss=False)
+        if context.active_pose_bone.wiggle_mute:
+            row.label(text='Bone muted.')
+            return
 
 class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
     bl_label = ''
     bl_parent_id = 'WIGGLE_PT_Settings'
+    bl_options = {'HEADER_LAYOUT_EXPAND'}
     
     @classmethod
     def poll(cls,context):
-        return context.scene.wiggle_enable and context.object and context.object.wiggle_enable and context.active_pose_bone and not context.active_pose_bone.bone.use_connect
+#        return context.active_pose_bone and not context.active_pose_bone.bone.use_connect
+        return context.scene.wiggle_enable and context.object and not context.object.wiggle_mute and context.active_pose_bone and not context.active_pose_bone.wiggle_mute and not context.active_pose_bone.bone.use_connect
     
     def draw_header(self,context):
-        self.layout.prop(context.active_pose_bone, 'wiggle_head')
+        row=self.layout.row(align=True)
+        row.prop(context.active_pose_bone, 'wiggle_head')
     
     def draw(self,context):
         b = context.active_pose_bone
@@ -725,14 +787,17 @@ class WIGGLE_PT_Head(WigglePanel,bpy.types.Panel):
 class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
     bl_label = ''
     bl_parent_id = 'WIGGLE_PT_Settings'
+    bl_options = {'HEADER_LAYOUT_EXPAND'}
     
     @classmethod
     def poll(cls,context):
-        return context.scene.wiggle_enable and context.object and context.object.wiggle_enable and context.active_pose_bone
+#        return context.active_pose_bone
+        return context.scene.wiggle_enable and context.object and not context.object.wiggle_mute and context.active_pose_bone and not context.active_pose_bone.wiggle_mute
     
     def draw_header(self,context):
-        self.layout.prop(context.active_pose_bone, 'wiggle_tail')
-    
+        row=self.layout.row(align=True)
+        row.prop(context.active_pose_bone, 'wiggle_tail')
+        
     def draw(self,context):
         b = context.active_pose_bone
         if not b.wiggle_tail: return
@@ -744,7 +809,7 @@ class WIGGLE_PT_Tail(WigglePanel,bpy.types.Panel):
         def drawprops(layout,b,props):
             for p in props:
                 layout.prop(b, p)
-                
+        
         col = layout.column(align=True)
         drawprops(col,b,['wiggle_mass','wiggle_stiff','wiggle_stretch','wiggle_damp'])
         col.separator()
@@ -852,7 +917,7 @@ class WiggleObject(bpy.types.PropertyGroup):
 class WiggleScene(bpy.types.PropertyGroup):
     dt: bpy.props.FloatProperty()
     lastframe: bpy.props.IntProperty()
-    iterations: bpy.props.IntProperty(name='Quality', description='Constraint solver interations for chain physics', min=1, default=2, soft_max=8, max=20)
+    iterations: bpy.props.IntProperty(name='Quality', description='Constraint solver interations for chain physics', min=1, default=2, soft_max=10, max=100)
     loop: bpy.props.BoolProperty(name='Loop Physics', description='Physics continues as timeline loops', default=True)
     list: bpy.props.CollectionProperty(type=WiggleItem, override={'LIBRARY_OVERRIDABLE','USE_INSERTION'})
     preroll: bpy.props.IntProperty(name = 'Preroll', description='Frames to run simulation before bake', min=0, default=0)
@@ -860,6 +925,7 @@ class WiggleScene(bpy.types.PropertyGroup):
     bake_overwrite: bpy.props.BoolProperty(name='Overwrite Current Action', description='Bake wiggle into current action, instead of creating a new one', default = False)
     bake_nla: bpy.props.BoolProperty(name='Current Action to NLA', description='Move existing animation on the armature into an NLA strip', default = False) 
     is_rendering: bpy.props.BoolProperty(default=False)
+    reset: bpy.props.BoolProperty(default=False)
 
 def register():
     
@@ -876,14 +942,44 @@ def register():
         name = 'Enable Armature',
         description = 'Enable wiggle on this armature',
         default = False,
+        options={'HIDDEN'},
+        override={'LIBRARY_OVERRIDABLE'}
+#        update=lambda s, c: update_prop(s, c, 'wiggle_enable')
+    )
+    bpy.types.Object.wiggle_mute = bpy.props.BoolProperty(
+        name = 'Mute Armature',
+        description = 'Mute wiggle on this armature.',
+        default = False,
         override={'LIBRARY_OVERRIDABLE'},
-        update=lambda s, c: update_prop(s, c, 'wiggle_enable')
+        update=lambda s, c: update_prop(s, c, 'wiggle_mute')
+    )
+    bpy.types.Object.wiggle_freeze = bpy.props.BoolProperty(
+        name = 'Freeze Wiggle',
+        description = 'Wiggle Calculation frozen after baking',
+        default = False,
+        override={'LIBRARY_OVERRIDABLE'}
+    )
+    bpy.types.PoseBone.wiggle_enable = bpy.props.BoolProperty(
+        name = 'Enable Bone',
+        description = "Enable wiggle on this bone",
+        default = False,
+        options={'HIDDEN'},
+        override={'LIBRARY_OVERRIDABLE'}
+#        update=lambda s, c: update_prop(s, c, 'wiggle_enable')
+    )
+    bpy.types.PoseBone.wiggle_mute = bpy.props.BoolProperty(
+        name = 'Mute Bone',
+        description = "Mute wiggle for this bone.",
+        default = False,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_mute')
     )
     bpy.types.PoseBone.wiggle_head = bpy.props.BoolProperty(
         name = 'Bone Head',
         description = "Enable wiggle on this bone's head",
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
+        options={'HIDDEN'},
         update=lambda s, c: update_prop(s, c, 'wiggle_head')
     )
     bpy.types.PoseBone.wiggle_tail = bpy.props.BoolProperty(
@@ -891,7 +987,23 @@ def register():
         description = "Enable wiggle on this bone's tail",
         default = False,
         override={'LIBRARY_OVERRIDABLE'},
+        options={'HIDDEN'},
         update=lambda s, c: update_prop(s, c, 'wiggle_tail')
+    )
+    
+    bpy.types.PoseBone.wiggle_head_mute = bpy.props.BoolProperty(
+        name = 'Bone Head Mute',
+        description = "Mute wiggle on this bone's head",
+        default = False,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_head_mute')
+    )
+    bpy.types.PoseBone.wiggle_tail_mute = bpy.props.BoolProperty(
+        name = 'Bone Tail Mute',
+        description = "Mute wiggle on this bone's tail",
+        default = False,
+        override={'LIBRARY_OVERRIDABLE'},
+        update=lambda s, c: update_prop(s, c, 'wiggle_tail_mute')
     )
     
     #TAIL PROPS
