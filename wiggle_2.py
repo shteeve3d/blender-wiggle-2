@@ -225,7 +225,7 @@ def update_matrix(b,last=False):
     if last:
         const = False
         for c in b.constraints:
-            if c.enabled and not (c.type == 'DAMPED_TRACK'):
+            if c.enabled: # and not (c.type in ['DAMPED_TRACK', 'TRACK_TO']):
                 const = True 
         if const:
             b.matrix = b.bone.matrix_local @ b.matrix_basis @ loc @ rot @ scale
@@ -235,7 +235,7 @@ def update_matrix(b,last=False):
     
 def pin(b):
     for c in b.constraints:
-        if c.type == 'DAMPED_TRACK' and c.target and not c.mute:
+        if c.type in ['DAMPED_TRACK','TRACK_TO','LOCKED_TRACK'] and c.target and not c.mute:
             goal = c.target.matrix_world
             if c.subtarget:
                 goal = goal @ c.target.pose.bones[c.subtarget].matrix
@@ -339,9 +339,6 @@ def constrain(b,i,dg):
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
                     p.wiggle.position = p.wiggle.matrix.translation + v3*sc
-#                else: #implied wiggle head
-#                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
-#                    p.wiggle.position_head -= s*fac
                     
                 b.wiggle.position += s*(1-fac)
                 update_p = True
@@ -404,10 +401,6 @@ def constrain(b,i,dg):
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
                     p.wiggle.position = p.wiggle.matrix.translation + v3*sc
-
-#                else: #implied p.wiggle_head
-#                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
-#                    p.wiggle.position_head -= s*fac
                 b.wiggle.position += s*(1-fac)
                 update_p = True
             else:
