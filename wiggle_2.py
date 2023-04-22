@@ -52,11 +52,13 @@ def build_list():
         if ob.type != 'ARMATURE': continue
         wigglebones = []
         for b in ob.pose.bones:
-            if not (b.wiggle_head or b.wiggle_tail):
+            if b.wiggle_tail or (b.wiggle_head and not b.bone.use_connect):
+                wigglebones.append(b)
+                b.wiggle_enable = True
+            else:
                 b.wiggle_enable = False
-                continue
-            b.wiggle_enable = True
-            wigglebones.append(b)
+#                continue
+#            wigglebones.append(b)
                 
         if not wigglebones:
             ob.wiggle_enable = False
@@ -279,6 +281,8 @@ def constrain(b,i,dg):
     def spring(target, position, stiff):
         s = target - position
         Fs = s * stiff / bpy.context.scene.wiggle.iterations
+        if (Fs*dt*dt).length > s.length:
+            return s
         return Fs*dt*dt
     
     def stretch(target, position, fac):
@@ -532,7 +536,7 @@ class WiggleCopy(bpy.types.Operator):
     
     def execute(self,context):
         b = context.active_pose_bone
-        b.wiggle_enable = b.wiggle_enable
+#        b.wiggle_enable = b.wiggle_enable
         b.wiggle_mute = b.wiggle_mute
         b.wiggle_head = b.wiggle_head
         b.wiggle_tail = b.wiggle_tail
