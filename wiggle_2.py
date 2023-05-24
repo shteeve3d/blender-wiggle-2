@@ -215,12 +215,13 @@ def update_matrix(b,last=False):
     
     if b.wiggle_head and not b.bone.use_connect:
         sy = (b.wiggle.position_head - b.wiggle.position).length/length_world(b)
-        if b.bone.inherit_scale == 'FULL':
-            l0=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
-            l1=(b.wiggle.position_head - b.wiggle.position).length
-            sy = sy*(l0/l1)
-            if b.parent:
-                sy = sy*(b.parent.length/b.parent.bone.length)
+#        if b.bone.inherit_scale == 'FULL':
+#            bpy.context.scene.cursor.location = b.wiggle.position
+#            l0=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
+#            l1=(b.wiggle.position_head - b.wiggle.position).length
+#            sy = sy*(l0/l1)
+#            if b.parent:
+#                sy = sy*(b.parent.length/b.parent.bone.length)
             
     scale = Matrix.Scale(sy,4,Vector((0,1,0)))
     
