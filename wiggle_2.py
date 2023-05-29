@@ -305,7 +305,7 @@ def constrain(b,i,dg):
             s = spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
             if p and b.wiggle_chain_head:
                 if p.wiggle_tail:
-                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass)
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass) if i else p.wiggle_stretch
                     p.wiggle.position -= s*fac
                 else:
                     fac = get_fac(b.wiggle_mass_head, p.wiggle_mass_head)
@@ -335,11 +335,10 @@ def constrain(b,i,dg):
                 if p == b.parent and b.bone.use_connect: #direct parent optimization
                     p.wiggle.position -= s*fac
                 else:
-                    headpos = mat.translation
-                    
-                    v1 = headpos-p.wiggle.matrix.translation
-                    headpos -= s*fac
-                    v2 = headpos-p.wiggle.matrix.translation
+                    tailpos = mat @ Vector((0,b.bone.length,0))
+                    v1 = tailpos-p.wiggle.matrix.translation
+                    tailpos -= s*fac
+                    v2 = tailpos-p.wiggle.matrix.translation
                     sc = v2.length/v1.length
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
@@ -397,11 +396,10 @@ def constrain(b,i,dg):
                 if p == b.parent and b.bone.use_connect: #optimization with direct parent tail
                     p.wiggle.position -= s*fac
                 else:
-                    headpos = mat.translation
-                    
-                    v1 = headpos-p.wiggle.matrix.translation
-                    headpos -= s*fac
-                    v2 = headpos-p.wiggle.matrix.translation
+                    tailpos = mat @ Vector((0,b.bone.length,0))
+                    v1 = tailpos-p.wiggle.matrix.translation
+                    tailpos -= s*fac
+                    v2 = tailpos-p.wiggle.matrix.translation
                     sc = v2.length/v1.length
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
@@ -1277,11 +1275,11 @@ def register():
     bpy.utils.register_class(WIGGLE_PT_Utilities)
     bpy.utils.register_class(WIGGLE_PT_Bake)
     
-#    bpy.app.handlers.frame_change_pre.clear()
-#    bpy.app.handlers.frame_change_post.clear()
-#    bpy.app.handlers.render_pre.clear()
-#    bpy.app.handlers.render_post.clear()
-#    bpy.app.handlers.render_cancel.clear()
+    bpy.app.handlers.frame_change_pre.clear()
+    bpy.app.handlers.frame_change_post.clear()
+    bpy.app.handlers.render_pre.clear()
+    bpy.app.handlers.render_post.clear()
+    bpy.app.handlers.render_cancel.clear()
     
     bpy.app.handlers.frame_change_pre.append(wiggle_pre)
     bpy.app.handlers.frame_change_post.append(wiggle_post)
