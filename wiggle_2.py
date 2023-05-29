@@ -335,10 +335,12 @@ def constrain(b,i,dg):
                 if p == b.parent and b.bone.use_connect: #direct parent optimization
                     p.wiggle.position -= s*fac
                 else:
-                    tailpos = mat @ Vector((0,b.bone.length,0))
-                    v1 = tailpos-p.wiggle.matrix.translation
+                    tailpos = b.wiggle.matrix @ Vector((0,b.bone.length,0))
+                    midpos = (b.wiggle.matrix.translation + tailpos)/2
+                    v1 = midpos-p.wiggle.matrix.translation
                     tailpos -= s*fac
-                    v2 = tailpos-p.wiggle.matrix.translation
+                    midpos = (b.wiggle.matrix.translation + tailpos)/2
+                    v2 = midpos-p.wiggle.matrix.translation
                     sc = v2.length/v1.length
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
@@ -393,17 +395,30 @@ def constrain(b,i,dg):
             if p and b.wiggle_chain and p.wiggle_tail: #ASSUMES P IS DIRECT PARENT?
 #                if p.wiggle_tail:
                 fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
-                if p == b.parent and b.bone.use_connect: #optimization with direct parent tail
+#                if (mat.translation - p.wiggle.matrix.translation).length == 0:
+#                    fac = 0
+                if (p == b.parent and b.bone.use_connect): #optimization with direct parent tail
                     p.wiggle.position -= s*fac
                 else:
-                    tailpos = mat @ Vector((0,b.bone.length,0))
-                    v1 = tailpos-p.wiggle.matrix.translation
-                    tailpos -= s*fac
-                    v2 = tailpos-p.wiggle.matrix.translation
+                    headpos = b.wiggle.matrix.translation
+                    v1 = headpos - p.wiggle.matrix.translation
+                    headpos -= s*fac
+                    v2 = headpos - p.wiggle.matrix.translation
                     sc = v2.length/v1.length
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
                     p.wiggle.position = p.wiggle.matrix.translation + v3*sc
+                    
+#                    tailpos = mat @ Vector((0,b.bone.length,0))
+#                    midpos = (mat.translation + tailpos)/2
+#                    v1 = midpos-p.wiggle.matrix.translation
+#                    tailpos -= s*fac
+#                    midpos = (mat.translation + tailpos)/2
+#                    v2 = midpos-p.wiggle.matrix.translation
+#                    sc = v2.length/v1.length
+#                    q = v1.rotation_difference(v2)
+#                    v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
+#                    p.wiggle.position = p.wiggle.matrix.translation + v3*sc
                 b.wiggle.position += s*(1-fac)
                 update_p = True
             else:
@@ -1275,11 +1290,11 @@ def register():
     bpy.utils.register_class(WIGGLE_PT_Utilities)
     bpy.utils.register_class(WIGGLE_PT_Bake)
     
-    bpy.app.handlers.frame_change_pre.clear()
-    bpy.app.handlers.frame_change_post.clear()
-    bpy.app.handlers.render_pre.clear()
-    bpy.app.handlers.render_post.clear()
-    bpy.app.handlers.render_cancel.clear()
+#    bpy.app.handlers.frame_change_pre.clear()
+#    bpy.app.handlers.frame_change_post.clear()
+#    bpy.app.handlers.render_pre.clear()
+#    bpy.app.handlers.render_post.clear()
+#    bpy.app.handlers.render_cancel.clear()
     
     bpy.app.handlers.frame_change_pre.append(wiggle_pre)
     bpy.app.handlers.frame_change_post.append(wiggle_post)
