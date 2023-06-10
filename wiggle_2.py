@@ -235,15 +235,20 @@ def update_matrix(b,last=False):
         else:
             b.matrix = b.matrix @ loc @ rot @ scale
     b.wiggle.matrix = flatten(m2 @ rot @ scale)
-    
-def pin(b):
+
+def get_pin(b):
     for c in b.constraints:
         if c.type in ['DAMPED_TRACK','TRACK_TO','LOCKED_TRACK'] and c.target and not c.mute:
-            goal = c.target.matrix_world
-            if c.subtarget:
-                goal = goal @ c.target.pose.bones[c.subtarget].matrix
-            b.wiggle.position = b.wiggle.position*(1-c.influence) + goal.translation*c.influence
-            break
+            return c
+    return None
+
+def pin(b):
+    c = get_pin(b)
+    if c:
+        goal = c.target.matrix_world
+        if c.subtarget:
+            goal = goal @ c.target.pose.bones[c.subtarget].matrix
+        b.wiggle.position = b.wiggle.position*(1-c.influence) + goal.translation*c.influence
 
 #can include gravity, wind, etc    
 def move(b,dg):
@@ -331,7 +336,9 @@ def constrain(b,i,dg):
             target = mat @ Vector((0, b.bone.length,0))
             s = spring(target, b.wiggle.position, b.wiggle_stiff)
             if p and b.wiggle_chain and p.wiggle_tail: # and b.bone.use_connect:
-                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
+                fac = get_fac(b.wiggle_mass, p.wiggle_mass)# if i else p.wiggle_stretch
+                if get_pin(b): fac = 1 - b.wiggle_stretch
+                if i == 0: fac = p.wiggle_stretch
                 if p == b.parent and b.bone.use_connect: #direct parent optimization
                     p.wiggle.position -= s*fac
                 else:
@@ -394,7 +401,9 @@ def constrain(b,i,dg):
             s = stretch(target, b.wiggle.position, b.wiggle_stretch)
             if p and b.wiggle_chain and p.wiggle_tail: #ASSUMES P IS DIRECT PARENT?
 #                if p.wiggle_tail:
-                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
+                fac = get_fac(b.wiggle_mass, p.wiggle_mass) #if i else p.wiggle_stretch
+                if get_pin(b): fac = 1 - b.wiggle_stretch
+                if i == 0: fac = p.wiggle_stretch
 #                if (mat.translation - p.wiggle.matrix.translation).length == 0:
 #                    fac = 0
                 if (p == b.parent and b.bone.use_connect): #optimization with direct parent tail
