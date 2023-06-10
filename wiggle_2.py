@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 2, 0),
+    "version": (2, 2, 1),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -52,11 +52,13 @@ def build_list():
         if ob.type != 'ARMATURE': continue
         wigglebones = []
         for b in ob.pose.bones:
-            if not (b.wiggle_head or b.wiggle_tail):
+            if b.wiggle_tail or (b.wiggle_head and not b.bone.use_connect):
+                wigglebones.append(b)
+                b.wiggle_enable = True
+            else:
                 b.wiggle_enable = False
-                continue
-            b.wiggle_enable = True
-            wigglebones.append(b)
+#                continue
+#            wigglebones.append(b)
                 
         if not wigglebones:
             ob.wiggle_enable = False
@@ -213,31 +215,40 @@ def update_matrix(b,last=False):
     
     if b.wiggle_head and not b.bone.use_connect:
         sy = (b.wiggle.position_head - b.wiggle.position).length/length_world(b)
-        if b.bone.inherit_scale == 'FULL':
-            l0=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
-            l1=(b.wiggle.position_head - b.wiggle.position).length
-            sy = sy*(l0/l1)
-            if b.parent:
-                sy = sy*(b.parent.length/b.parent.bone.length)
+#        if b.bone.inherit_scale == 'FULL':
+#            bpy.context.scene.cursor.location = b.wiggle.position
+#            l0=relative_matrix(mat, Matrix.Translation(b.wiggle.position)).translation.length
+#            l1=(b.wiggle.position_head - b.wiggle.position).length
+#            sy = sy*(l0/l1)
+#            if b.parent:
+#                sy = sy*(b.parent.length/b.parent.bone.length)
             
     scale = Matrix.Scale(sy,4,Vector((0,1,0)))
     
     if last:
         const = False
         for c in b.constraints:
-            if c.enabled and not (c.type == 'DAMPED_TRACK'):
+            if c.enabled: # and not (c.type in ['DAMPED_TRACK', 'TRACK_TO']):
                 const = True 
         if const:
             b.matrix = b.bone.matrix_local @ b.matrix_basis @ loc @ rot @ scale
         else:
             b.matrix = b.matrix @ loc @ rot @ scale
     b.wiggle.matrix = flatten(m2 @ rot @ scale)
-    
-def pin(b):
+
+def get_pin(b):
     for c in b.constraints:
-        if c.type == 'DAMPED_TRACK' and c.target and not c.mute:
-            b.wiggle.position = b.wiggle.position*(1-c.influence) + c.target.location*c.influence
-            break
+        if c.type in ['DAMPED_TRACK','TRACK_TO','LOCKED_TRACK'] and c.target and not c.mute:
+            return c
+    return None
+
+def pin(b):
+    c = get_pin(b)
+    if c:
+        goal = c.target.matrix_world
+        if c.subtarget:
+            goal = goal @ c.target.pose.bones[c.subtarget].matrix
+        b.wiggle.position = b.wiggle.position*(1-c.influence) + goal.translation*c.influence
 
 #can include gravity, wind, etc    
 def move(b,dg):
@@ -276,6 +287,8 @@ def constrain(b,i,dg):
     def spring(target, position, stiff):
         s = target - position
         Fs = s * stiff / bpy.context.scene.wiggle.iterations
+        if (Fs*dt*dt).length > s.length:
+            return s
         return Fs*dt*dt
     
     def stretch(target, position, fac):
@@ -297,7 +310,7 @@ def constrain(b,i,dg):
             s = spring(target, b.wiggle.position_head, b.wiggle_stiff_head)
             if p and b.wiggle_chain_head:
                 if p.wiggle_tail:
-                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass)
+                    fac = get_fac(b.wiggle_mass_head, p.wiggle_mass) if i else p.wiggle_stretch
                     p.wiggle.position -= s*fac
                 else:
                     fac = get_fac(b.wiggle_mass_head, p.wiggle_mass_head)
@@ -323,22 +336,22 @@ def constrain(b,i,dg):
             target = mat @ Vector((0, b.bone.length,0))
             s = spring(target, b.wiggle.position, b.wiggle_stiff)
             if p and b.wiggle_chain and p.wiggle_tail: # and b.bone.use_connect:
-                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
+                fac = get_fac(b.wiggle_mass, p.wiggle_mass)# if i else p.wiggle_stretch
+                if get_pin(b): fac = 1 - b.wiggle_stretch
+                if i == 0: fac = p.wiggle_stretch
                 if p == b.parent and b.bone.use_connect: #direct parent optimization
                     p.wiggle.position -= s*fac
                 else:
-                    headpos = mat.translation
-                    
-                    v1 = headpos-p.wiggle.matrix.translation
-                    headpos -= s*fac
-                    v2 = headpos-p.wiggle.matrix.translation
+                    tailpos = b.wiggle.matrix @ Vector((0,b.bone.length,0))
+                    midpos = (b.wiggle.matrix.translation + tailpos)/2
+                    v1 = midpos-p.wiggle.matrix.translation
+                    tailpos -= s*fac
+                    midpos = (b.wiggle.matrix.translation + tailpos)/2
+                    v2 = midpos-p.wiggle.matrix.translation
                     sc = v2.length/v1.length
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
                     p.wiggle.position = p.wiggle.matrix.translation + v3*sc
-#                else: #implied wiggle head
-#                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
-#                    p.wiggle.position_head -= s*fac
                     
                 b.wiggle.position += s*(1-fac)
                 update_p = True
@@ -388,23 +401,33 @@ def constrain(b,i,dg):
             s = stretch(target, b.wiggle.position, b.wiggle_stretch)
             if p and b.wiggle_chain and p.wiggle_tail: #ASSUMES P IS DIRECT PARENT?
 #                if p.wiggle_tail:
-                fac = get_fac(b.wiggle_mass, p.wiggle_mass) if i else p.wiggle_stretch
-                if p == b.parent and b.bone.use_connect: #optimization with direct parent tail
+                fac = get_fac(b.wiggle_mass, p.wiggle_mass) #if i else p.wiggle_stretch
+                if get_pin(b): fac = 1 - b.wiggle_stretch
+                if i == 0: fac = p.wiggle_stretch
+#                if (mat.translation - p.wiggle.matrix.translation).length == 0:
+#                    fac = 0
+                if (p == b.parent and b.bone.use_connect): #optimization with direct parent tail
                     p.wiggle.position -= s*fac
                 else:
-                    headpos = mat.translation
-                    
-                    v1 = headpos-p.wiggle.matrix.translation
+                    headpos = b.wiggle.matrix.translation
+                    v1 = headpos - p.wiggle.matrix.translation
                     headpos -= s*fac
-                    v2 = headpos-p.wiggle.matrix.translation
+                    v2 = headpos - p.wiggle.matrix.translation
                     sc = v2.length/v1.length
                     q = v1.rotation_difference(v2)
                     v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
                     p.wiggle.position = p.wiggle.matrix.translation + v3*sc
-
-#                else: #implied p.wiggle_head
-#                    fac = get_fac(b.wiggle_mass, p.wiggle_mass_head) if i else p.wiggle_stretch_head
-#                    p.wiggle.position_head -= s*fac
+                    
+#                    tailpos = mat @ Vector((0,b.bone.length,0))
+#                    midpos = (mat.translation + tailpos)/2
+#                    v1 = midpos-p.wiggle.matrix.translation
+#                    tailpos -= s*fac
+#                    midpos = (mat.translation + tailpos)/2
+#                    v2 = midpos-p.wiggle.matrix.translation
+#                    sc = v2.length/v1.length
+#                    q = v1.rotation_difference(v2)
+#                    v3 = q @ (p.wiggle.position - p.wiggle.matrix.translation)
+#                    p.wiggle.position = p.wiggle.matrix.translation + v3*sc
                 b.wiggle.position += s*(1-fac)
                 update_p = True
             else:
@@ -536,7 +559,7 @@ class WiggleCopy(bpy.types.Operator):
     
     def execute(self,context):
         b = context.active_pose_bone
-        b.wiggle_enable = b.wiggle_enable
+#        b.wiggle_enable = b.wiggle_enable
         b.wiggle_mute = b.wiggle_mute
         b.wiggle_head = b.wiggle_head
         b.wiggle_tail = b.wiggle_tail
