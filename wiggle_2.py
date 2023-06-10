@@ -80,6 +80,8 @@ def update_prop(self,context,prop):
             build_list()
             for b in context.selected_pose_bones:
                 reset_bone(b)
+    #edge case where is_rendering gets stuck, the user fiddling with any setting should unstuck it!
+    context.scene.wiggle.is_rendering = False
         
 def get_parent(b):
     p = b.parent
