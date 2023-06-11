@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 2, 1),
+    "version": (2, 2, 2),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -448,6 +448,7 @@ def constrain(b,i,dg):
         
 @persistent
 def wiggle_pre(scene):
+    if (scene.wiggle.lastframe == scene.frame_current) and not scene.wiggle.reset: return
     if not scene.wiggle_enable:
         reset_scene()
         return
@@ -488,6 +489,7 @@ def wiggle_pre(scene):
 
 @persistent                
 def wiggle_post(scene,dg):
+    if (scene.wiggle.lastframe == scene.frame_current) and not scene.wiggle.reset: return
     if scene.wiggle.reset: return
     if not scene.wiggle_enable: return
     if scene.wiggle.is_rendering: return
