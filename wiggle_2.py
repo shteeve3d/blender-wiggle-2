@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 2, 2),
+    "version": (2, 2, 3),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -73,6 +73,8 @@ def build_list():
 
         
 def update_prop(self,context,prop): 
+    if prop in ['wiggle_mute','wiggle_enable']:
+        build_list()
     if type(self) == bpy.types.PoseBone: 
         for b in context.selected_pose_bones:
             b[prop] = self[prop]
@@ -551,6 +553,12 @@ def wiggle_render_post(scene):
 @persistent
 def wiggle_render_cancel(scene):
     scene.wiggle.is_rendering = False
+    
+@persistent
+def wiggle_load(scene):
+    build_list()
+    s = bpy.context.scene
+    s.wiggle.is_rendering = False
             
 class WiggleCopy(bpy.types.Operator):
     """Copy active wiggle settings to selected bones"""
@@ -1308,12 +1316,14 @@ def register():
 #    bpy.app.handlers.render_pre.clear()
 #    bpy.app.handlers.render_post.clear()
 #    bpy.app.handlers.render_cancel.clear()
+#    bpy.app.handlers.load_post.clear()
     
     bpy.app.handlers.frame_change_pre.append(wiggle_pre)
     bpy.app.handlers.frame_change_post.append(wiggle_post)
     bpy.app.handlers.render_pre.append(wiggle_render_pre)
     bpy.app.handlers.render_post.append(wiggle_render_post)
     bpy.app.handlers.render_cancel.append(wiggle_render_cancel)
+    bpy.app.handlers.load_post.append(wiggle_load)
 
 def unregister():
     bpy.utils.unregister_class(WiggleBoneItem)
@@ -1336,6 +1346,7 @@ def unregister():
     bpy.app.handlers.render_pre.remove(wiggle_render_pre)
     bpy.app.handlers.render_post.remove(wiggle_render_post)
     bpy.app.handlers.render_cancel.remove(wiggle_render_cancel)
+    bpy.app.handlers.load_post.remove(wiggle_load)
     
 if __name__ == "__main__":
     register()
