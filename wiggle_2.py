@@ -451,6 +451,7 @@ def constrain(b,i,dg):
 @persistent
 def wiggle_pre(scene):
     if (scene.wiggle.lastframe == scene.frame_current) and not scene.wiggle.reset: return
+    if scene.wiggle.is_rendering: return
     if not scene.wiggle_enable:
         reset_scene()
         return
