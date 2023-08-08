@@ -232,7 +232,9 @@ def update_matrix(b,last=False):
     if last:
         const = False
         for c in b.constraints:
-            if c.enabled: # and not (c.type in ['DAMPED_TRACK', 'TRACK_TO']):
+            if c.enabled and not (
+                c.type in ["LIMIT_ROTATION"]
+            ): # and not (c.type in ['DAMPED_TRACK', 'TRACK_TO']):
                 const = True 
         if const:
             b.matrix = b.bone.matrix_local @ b.matrix_basis @ loc @ rot @ scale
