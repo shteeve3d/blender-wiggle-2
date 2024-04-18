@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Wiggle 2",
     "author": "Steve Miller",
-    "version": (2, 2, 3),
+    "version": (2, 2, 4),
     "blender": (3, 00, 0),
     "location": "3d Viewport > Animation Panel",
     "description": "Simulate spring-like physics on Bone transforms",
@@ -706,12 +706,21 @@ class WiggleBake(bpy.types.Operator):
             context.scene.wiggle.is_preroll = True
             preroll -= 1
         #bake
-        bpy.ops.nla.bake(frame_start = context.scene.frame_start,
-                        frame_end = context.scene.frame_end,
-                        only_selected = True,
-                        visual_keying = True,
-                        use_current_action = context.scene.wiggle.bake_overwrite,
-                        bake_types={'POSE'})
+        if bpy.app.version[0] >= 4 and bpy.app.version[1] > 0:
+            bpy.ops.nla.bake(frame_start = context.scene.frame_start,
+                            frame_end = context.scene.frame_end,
+                            only_selected = True,
+                            visual_keying = True,
+                            use_current_action = context.scene.wiggle.bake_overwrite,
+                            bake_types={'POSE'},
+                            channel_types={'LOCATION','ROTATION','SCALE'})
+        else:
+            bpy.ops.nla.bake(frame_start = context.scene.frame_start,
+                            frame_end = context.scene.frame_end,
+                            only_selected = True,
+                            visual_keying = True,
+                            use_current_action = context.scene.wiggle.bake_overwrite,
+                            bake_types={'POSE'})
         context.scene.wiggle.is_preroll = False
         context.object.wiggle_freeze = True
         if not context.scene.wiggle.bake_overwrite:
